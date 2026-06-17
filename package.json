@@ -2,7 +2,7 @@
   "name": "codessa",
   "version": "1.0.0",
   "description": "Codessa - AI-powered GitHub pull request review system",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
