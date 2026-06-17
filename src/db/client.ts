@@ -1,8 +1,23 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as schema from "./schema.js";
+import { MongoClient } from "mongodb";
+import type { Review, Repository, User } from "./models.js";
 
-const sqlite = new Database(process.env.DATABASE_URL ?? "codessa.db");
-sqlite.pragma("journal_mode = WAL");
+const client = new MongoClient(process.env.MONGODB_URI ?? "mongodb://localhost:27017");
 
-export const db = drizzle(sqlite, { schema });
+let connected = false;
+
+export async function connectMongo() {
+  if (!connected) {
+    await client.connect();
+    connected = true;
+  }
+  return client;
+}
+
+const dbName = process.env.MONGODB_DB ?? "codessa";
+const mongoDb = client.db(dbName);
+
+export const collections = {
+  users: mongoDb.collection<User>("users"),
+  repositories: mongoDb.collection<Repository>("repositories"),
+  reviews: mongoDb.collection<Review>("reviews"),
+};
