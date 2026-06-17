@@ -1,7 +1,11 @@
 import { MongoClient } from "mongodb";
 import type { Review, Repository, User } from "./models.js";
+import dns from "dns";
+
 
 const client = new MongoClient(process.env.MONGODB_URI ?? "mongodb://localhost:27017");
+
+dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 
 let connected = false;
 
