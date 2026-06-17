@@ -5,6 +5,7 @@ import { verifyGithubSignature, type WebhookVariables } from "../middleware/veri
 import { GithubService } from "../services/github.service.js";
 import { DeepseekService } from "../services/deepseek.service.js";
 import { getInstallationOctokit } from "../services/github-app.service.js";
+import { getValidCommentLines } from "../utils/diff.js";
 
 const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY ?? "";
@@ -102,6 +103,10 @@ async function runReview(params: {
     const files = await github.getPullRequestFiles(params.owner, params.repo, params.pullNumber);
     const result = await deepseek.reviewFiles(files, params.customInstructions);
 
+    const validLinesByFile = new Map(files.map((f) => [f.filename, f.patch ? getValidCommentLines(f.patch) : new Set<number>()]));
+    const isLineValid = (file: string, line: number | null) =>
+      line !== null && (validLinesByFile.get(file)?.has(line) ?? false);
+
     const comments = result.comments.map((c) => ({
       filePath: c.file,
       line: c.line,
@@ -110,10 +115,17 @@ async function runReview(params: {
     }));
 
     const inlineComments = result.comments
-      .filter((c) => c.line !== null)
+      .filter((c) => isLineValid(c.file, c.line))
       .map((c) => ({ path: c.file, line: c.line as number, body: `**[${c.severity}]** ${c.comment}` }));
 
-    await github.postReviewComment(params.owner, params.repo, params.pullNumber, result.summary, inlineComments);
+    const unplacedComments = result.comments.filter((c) => !isLineValid(c.file, c.line));
+    const summary = unplacedComments.length
+      ? `${result.summary}\n\n---\n**Additional notes:**\n${unplacedComments
+          .map((c) => `- **[${c.severity}]** \`${c.file}\`: ${c.comment}`)
+          .join("\n")}`
+      : result.summary;
+
+    await github.postReviewComment(params.owner, params.repo, params.pullNumber, summary, inlineComments);
 
     const hasCritical = result.comments.some((c) => c.severity === "critical");
     await github.setCommitStatus(
