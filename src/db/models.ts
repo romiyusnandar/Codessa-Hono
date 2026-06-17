@@ -5,11 +5,23 @@ export type User = {
   githubId: string;
   username: string;
   accessToken?: string;
+  tokenRevokedAt?: Date;
+  createdAt: Date;
+};
+
+export type Installation = {
+  _id?: ObjectId;
+  installationId: number;
+  accountLogin: string;
+  accountType: "User" | "Organization";
+  userId: ObjectId;
+  suspendedAt?: Date;
   createdAt: Date;
 };
 
 export type Repository = {
   _id?: ObjectId;
+  installationId: number;
   userId: ObjectId;
   githubRepoId: string;
   fullName: string;

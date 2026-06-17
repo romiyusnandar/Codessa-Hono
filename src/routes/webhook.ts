@@ -4,6 +4,7 @@ import { collections } from "../db/client.js";
 import { verifyGithubSignature, type WebhookVariables } from "../middleware/verify-github-signature.js";
 import { GithubService } from "../services/github.service.js";
 import { DeepseekService } from "../services/deepseek.service.js";
+import { getInstallationOctokit } from "../services/github-app.service.js";
 
 const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY ?? "";
@@ -15,6 +16,11 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
   const rawBody = c.get("rawBody");
   const payload = JSON.parse(rawBody);
 
+  if (event === "installation") {
+    await handleInstallationEvent(payload);
+    return c.json({ ok: true });
+  }
+
   if (event !== "pull_request" || !["opened", "synchronize", "reopened"].includes(payload.action)) {
     return c.json({ skipped: true });
   }
@@ -23,6 +29,11 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
   const [owner, repo] = fullName.split("/");
   const pullNumber = payload.pull_request.number as number;
   const commitSha = payload.pull_request.head.sha as string;
+  const installationId = payload.installation?.id as number | undefined;
+
+  if (!installationId) {
+    return c.json({ skipped: true, reason: "no installation in payload" });
+  }
 
   const repository = await collections.repositories.findOne({ fullName, enabled: true });
   if (!repository) {
@@ -50,6 +61,7 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
       pullNumber,
       commitSha,
       reviewId: insertedId,
+      installationId,
       customInstructions: repository.customInstructions,
     })
   );
@@ -57,17 +69,32 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
   return c.json({ accepted: true, reviewId: insertedId });
 });
 
+async function handleInstallationEvent(payload: { action: string; installation: { id: number } }) {
+  const installationId = payload.installation.id;
+
+  if (payload.action === "deleted") {
+    await collections.installations.deleteOne({ installationId });
+    await collections.repositories.updateMany({ installationId }, { $set: { enabled: false } });
+  } else if (payload.action === "suspend") {
+    await collections.installations.updateOne({ installationId }, { $set: { suspendedAt: new Date() } });
+    await collections.repositories.updateMany({ installationId }, { $set: { enabled: false } });
+  } else if (payload.action === "unsuspend") {
+    await collections.installations.updateOne({ installationId }, { $unset: { suspendedAt: "" } });
+  }
+}
+
 async function runReview(params: {
   owner: string;
   repo: string;
   pullNumber: number;
   commitSha: string;
   reviewId: ObjectId;
+  installationId: number;
   customInstructions?: string;
 }) {
-  const githubToken = process.env.GITHUB_TOKEN ?? "";
-  const github = new GithubService(githubToken);
   const deepseek = new DeepseekService(deepseekApiKey);
+  const octokit = await getInstallationOctokit(params.installationId);
+  const github = new GithubService(octokit);
 
   try {
     await github.setCommitStatus(params.owner, params.repo, params.commitSha, "pending", "Codessa is reviewing this PR");
@@ -102,7 +129,12 @@ async function runReview(params: {
       { $set: { status: "success", summary: result.summary, comments, finishedAt: new Date() } }
     );
   } catch (error) {
-    await github.setCommitStatus(params.owner, params.repo, params.commitSha, "error", "Codessa review failed");
+    try {
+      await github.setCommitStatus(params.owner, params.repo, params.commitSha, "error", "Codessa review failed");
+    } catch {
+      // commit status update can fail too (e.g. installation revoked mid-flight); review failure is recorded below regardless
+    }
+
     await collections.reviews.updateOne(
       { _id: params.reviewId },
       {

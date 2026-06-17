@@ -1,5 +1,5 @@
 import { MongoClient } from "mongodb";
-import type { Review, Repository, User } from "./models.js";
+import type { Review, Repository, User, Installation } from "./models.js";
 import dns from "dns";
 
 
@@ -24,4 +24,5 @@ export const collections = {
   users: mongoDb.collection<User>("users"),
   repositories: mongoDb.collection<Repository>("repositories"),
   reviews: mongoDb.collection<Review>("reviews"),
+  installations: mongoDb.collection<Installation>("installations"),
 };

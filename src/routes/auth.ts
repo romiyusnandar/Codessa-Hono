@@ -73,6 +73,7 @@ authRoute.get("/github/callback", async (c) => {
         username: githubUser.login,
         accessToken: tokenData.access_token,
       },
+      $unset: { tokenRevokedAt: "" },
       $setOnInsert: { createdAt: new Date() },
     },
     { upsert: true, returnDocument: "after" }
@@ -106,7 +107,12 @@ authRoute.get("/me", requireAuth, async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  return c.json({ id: user._id, username: user.username, githubId: user.githubId });
+  return c.json({
+    id: user._id,
+    username: user.username,
+    githubId: user.githubId,
+    tokenRevoked: Boolean(user.tokenRevokedAt),
+  });
 });
 
 authRoute.post("/logout", (c) => {

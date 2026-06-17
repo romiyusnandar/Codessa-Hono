@@ -1,4 +1,4 @@
-import { Octokit } from "octokit";
+import type { Octokit } from "octokit";
 
 export type PullRequestFile = {
   filename: string;
@@ -7,11 +7,7 @@ export type PullRequestFile = {
 };
 
 export class GithubService {
-  private octokit: Octokit;
-
-  constructor(accessToken: string) {
-    this.octokit = new Octokit({ auth: accessToken });
-  }
+  constructor(private octokit: Octokit) {}
 
   async getPullRequestFiles(owner: string, repo: string, pullNumber: number): Promise<PullRequestFile[]> {
     const files = await this.octokit.paginate(this.octokit.rest.pulls.listFiles, {
