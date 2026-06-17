@@ -54,17 +54,17 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
     createdAt: new Date(),
   });
 
-  c.executionCtx?.waitUntil?.(
-    runReview({
-      owner,
-      repo,
-      pullNumber,
-      commitSha,
-      reviewId: insertedId,
-      installationId,
-      customInstructions: repository.customInstructions,
-    })
-  );
+  runReview({
+    owner,
+    repo,
+    pullNumber,
+    commitSha,
+    reviewId: insertedId,
+    installationId,
+    customInstructions: repository.customInstructions,
+  }).catch((error) => {
+    console.error("runReview failed:", error);
+  });
 
   return c.json({ accepted: true, reviewId: insertedId });
 });
