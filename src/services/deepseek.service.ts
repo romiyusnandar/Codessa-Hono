@@ -27,7 +27,7 @@ Focus on bugs, security issues, performance, and maintainability. Use "line" as 
 
 export class DeepseekService {
   private apiKey: string;
-  private baseUrl = "https://api.deepseek.com/v1";
+  private baseUrl = "https://api.deepseek.com";
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
@@ -50,7 +50,7 @@ export class DeepseekService {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
