@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PullRequestFile } from "./github.service.js";
+import { annotatePatchWithLineNumbers } from "../utils/diff.js";
 
 const reviewCommentSchema = z.object({
   file: z.string(),
@@ -23,7 +24,9 @@ Review the provided diff and respond ONLY with valid JSON matching this shape:
     { "file": string, "line": number | null, "severity": "info" | "minor" | "major" | "critical", "comment": string }
   ]
 }
-Focus on bugs, security issues, performance, and maintainability. Use "line" as the line number in the new file version, or null if it cannot be mapped to a specific line. Do not include markdown fences in your response.`;
+Focus on bugs, security issues, performance, and maintainability.
+
+Each diff line is prefixed with its exact line number in the NEW version of the file, followed by the original "+"/"-"/" " marker, e.g. "12+    return a - b;". Removed lines (marker "-") have no line number since they don't exist in the new file. Always copy the given line number exactly for the "line" field — do not count or recalculate it yourself. If a comment refers to a removed line or can't be tied to a specific numbered line, set "line" to null. Do not include markdown fences in your response.`;
 
 export class DeepseekService {
   private apiKey: string;
@@ -36,7 +39,7 @@ export class DeepseekService {
   async reviewFiles(files: PullRequestFile[], customInstructions?: string): Promise<ReviewResult> {
     const diffText = files
       .filter((f) => f.patch)
-      .map((f) => `### File: ${f.filename} (${f.status})\n${f.patch}`)
+      .map((f) => `### File: ${f.filename} (${f.status})\n${annotatePatchWithLineNumbers(f.patch!)}`)
       .join("\n\n");
 
     const userPrompt = customInstructions
