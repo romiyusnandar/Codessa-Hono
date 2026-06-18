@@ -7,15 +7,17 @@ import { reviewsRoute } from "./routes/reviews.js";
 import { authRoute } from "./routes/auth.js";
 import { repositoriesRoute } from "./routes/repositories.js";
 import { githubAppRoute } from "./routes/github-app.js";
+import { docsRoute } from "./routes/docs.js";
 
 const app = new Hono();
 
-app.get("/", (c) => c.json({ name: "Codessa", status: "ok" }));
+app.get("/", (c) => c.json({ name: "Codessa", status: "ok", docs: "/docs" }));
 app.route("/webhooks", webhookRoute);
 app.route("/auth", authRoute);
 app.route("/github-app", githubAppRoute);
 app.route("/repositories", repositoriesRoute);
 app.route("/reviews", reviewsRoute);
+app.route("/", docsRoute);
 
 const port = Number(process.env.PORT ?? 3000);
 

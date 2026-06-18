@@ -1,0 +1,387 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Codessa API",
+    "version": "1.0.0",
+    "description": "AI-powered GitHub pull request review system. Authentication uses an httpOnly `session` cookie set after completing the GitHub OAuth login flow — browser requests automatically include it; non-browser clients must forward the `Set-Cookie` value."
+  },
+  "servers": [
+    { "url": "https://codessa-hono.onrender.com", "description": "Production" },
+    { "url": "http://localhost:3000", "description": "Local" }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Login with GitHub, session, and user settings" },
+    { "name": "GitHub App", "description": "Install the Codessa GitHub App" },
+    { "name": "Repositories", "description": "Manage which repos are auto-reviewed" },
+    { "name": "Reviews", "description": "Review history" },
+    { "name": "Webhooks", "description": "GitHub webhook receiver (called by GitHub, not by clients)" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "session",
+        "description": "Set automatically after completing GET /auth/github login flow"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } },
+        "example": { "error": "Unauthorized" }
+      },
+      "ReviewComment": {
+        "type": "object",
+        "properties": {
+          "filePath": { "type": "string", "example": "src/math.js" },
+          "line": { "type": "integer", "nullable": true, "example": 12 },
+          "severity": { "type": "string", "enum": ["info", "minor", "major", "critical"] },
+          "comment": { "type": "string", "example": "This changes addition to subtraction, likely a bug." }
+        }
+      },
+      "Review": {
+        "type": "object",
+        "properties": {
+          "_id": { "type": "string", "example": "665f1c2e4b1a2c3d4e5f6789" },
+          "repositoryId": { "type": "string", "example": "665f1c2e4b1a2c3d4e5f1234" },
+          "pullNumber": { "type": "integer", "example": 7 },
+          "commitSha": { "type": "string", "example": "2c773ef9a1b2c3d4e5f60718293a4b5c6d7e8f90" },
+          "status": { "type": "string", "enum": ["pending", "running", "success", "failed", "skipped"] },
+          "summary": { "type": "string", "nullable": true },
+          "comments": { "type": "array", "items": { "$ref": "#/components/schemas/ReviewComment" } },
+          "errorMessage": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "finishedAt": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "RepositorySummary": {
+        "type": "object",
+        "properties": {
+          "githubRepoId": { "type": "string", "example": "123456789" },
+          "fullName": { "type": "string", "example": "octocat/hello-world" },
+          "owner": { "type": "string", "example": "octocat" },
+          "name": { "type": "string", "example": "hello-world" },
+          "private": { "type": "boolean" },
+          "defaultBranch": { "type": "string", "example": "main" },
+          "installationId": { "type": "integer", "example": 54321 },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "example": "665f1c2e4b1a2c3d4e5f0001" },
+          "username": { "type": "string", "example": "octocat" },
+          "githubId": { "type": "string", "example": "583231" },
+          "avatarUrl": { "type": "string", "example": "https://avatars.githubusercontent.com/u/583231?v=4" },
+          "tokenRevoked": { "type": "boolean" },
+          "settings": {
+            "type": "object",
+            "properties": { "reviewLanguage": { "type": "string", "example": "Indonesian" } }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "content": { "application/json": { "example": { "name": "Codessa", "status": "ok" } } }
+          }
+        }
+      }
+    },
+    "/auth/github": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Start GitHub OAuth login",
+        "description": "Redirects the browser to GitHub's authorize page. On success, GitHub redirects back to /auth/github/callback which sets the `session` cookie.",
+        "responses": {
+          "302": { "description": "Redirect to https://github.com/login/oauth/authorize" }
+        }
+      }
+    },
+    "/auth/github/callback": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "OAuth callback (called by GitHub, not directly by clients)",
+        "parameters": [
+          { "name": "code", "in": "query", "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "302": { "description": "Sets session cookie and redirects to /auth/me" },
+          "400": {
+            "description": "Invalid OAuth state or failed token exchange",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Get current logged-in user",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "200": {
+            "description": "Current user",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Me" },
+                "example": {
+                  "id": "665f1c2e4b1a2c3d4e5f0001",
+                  "username": "octocat",
+                  "githubId": "583231",
+                  "avatarUrl": "https://avatars.githubusercontent.com/u/583231?v=4",
+                  "tokenRevoked": false,
+                  "settings": { "reviewLanguage": "Indonesian" }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/auth/settings": {
+      "patch": {
+        "tags": ["Auth"],
+        "summary": "Update user settings",
+        "security": [{ "sessionCookie": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "reviewLanguage": { "type": "string", "minLength": 2, "maxLength": 50 } }
+              },
+              "example": { "reviewLanguage": "Indonesian" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings",
+            "content": {
+              "application/json": { "example": { "settings": { "reviewLanguage": "Indonesian" } } }
+            }
+          },
+          "400": {
+            "description": "Invalid payload",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log out (clears session cookie)",
+        "responses": {
+          "200": { "description": "Logged out", "content": { "application/json": { "example": { "ok": true } } } }
+        }
+      }
+    },
+    "/github-app/install": {
+      "get": {
+        "tags": ["GitHub App"],
+        "summary": "Start GitHub App installation",
+        "description": "Redirects to GitHub's App installation page. After the user picks repos and installs, GitHub redirects to /github-app/callback.",
+        "security": [{ "sessionCookie": [] }],
+        "responses": {
+          "302": { "description": "Redirect to https://github.com/apps/<slug>/installations/new" },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/github-app/callback": {
+      "get": {
+        "tags": ["GitHub App"],
+        "summary": "Installation callback (called by GitHub)",
+        "parameters": [
+          { "name": "installation_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "setup_action", "in": "query", "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Installation linked to your account",
+            "content": { "application/json": { "example": { "ok": true, "installationId": 54321 } } }
+          },
+          "400": {
+            "description": "Invalid/expired state, or installation still pending approval",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/repositories": {
+      "get": {
+        "tags": ["Repositories"],
+        "summary": "List repositories accessible via your GitHub App installations",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "perPage", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } },
+          { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Case-insensitive substring match on full repo name" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated repository list",
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": [
+                    {
+                      "githubRepoId": "123456789",
+                      "fullName": "octocat/hello-world",
+                      "owner": "octocat",
+                      "name": "hello-world",
+                      "private": false,
+                      "defaultBranch": "main",
+                      "installationId": 54321,
+                      "enabled": true
+                    }
+                  ],
+                  "page": 1,
+                  "perPage": 20,
+                  "total": 1,
+                  "totalPages": 1
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/repositories/{owner}/{repo}/enable": {
+      "post": {
+        "tags": ["Repositories"],
+        "summary": "Enable auto-review for a repository",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "schema": { "type": "string" }, "example": "octocat" },
+          { "name": "repo", "in": "path", "required": true, "schema": { "type": "string" }, "example": "hello-world" }
+        ],
+        "responses": {
+          "200": { "description": "Enabled", "content": { "application/json": { "example": { "ok": true } } } },
+          "404": {
+            "description": "Repository not found or Codessa app not installed on it",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/repositories/{owner}/{repo}/disable": {
+      "post": {
+        "tags": ["Repositories"],
+        "summary": "Disable auto-review for a repository",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "schema": { "type": "string" }, "example": "octocat" },
+          { "name": "repo", "in": "path", "required": true, "schema": { "type": "string" }, "example": "hello-world" }
+        ],
+        "responses": {
+          "200": { "description": "Disabled", "content": { "application/json": { "example": { "ok": true } } } }
+        }
+      }
+    },
+    "/reviews": {
+      "get": {
+        "tags": ["Reviews"],
+        "summary": "List review history for your repositories",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "repo", "in": "query", "schema": { "type": "string" }, "description": "Filter by full repo name, e.g. octocat/hello-world" }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of reviews, newest first",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Review" } } } }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/reviews/{id}": {
+      "get": {
+        "tags": ["Reviews"],
+        "summary": "Get a single review",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "example": "665f1c2e4b1a2c3d4e5f6789" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Review detail",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Review" } } }
+          },
+          "400": {
+            "description": "Invalid id",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "404": {
+            "description": "Not found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/webhooks/github": {
+      "post": {
+        "tags": ["Webhooks"],
+        "summary": "GitHub webhook receiver",
+        "description": "Configured as the GitHub App's webhook URL. Verifies the `X-Hub-Signature-256` header using GITHUB_WEBHOOK_SECRET. Not meant to be called directly by clients.",
+        "parameters": [
+          { "name": "X-GitHub-Event", "in": "header", "required": true, "schema": { "type": "string" }, "example": "pull_request" },
+          { "name": "X-Hub-Signature-256", "in": "header", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "action": "opened",
+                "pull_request": { "number": 7, "head": { "sha": "2c773ef..." } },
+                "repository": { "full_name": "octocat/hello-world" },
+                "installation": { "id": 54321 }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Accepted, skipped, or processed", "content": { "application/json": { "example": { "accepted": true, "reviewId": "665f1c2e4b1a2c3d4e5f6789" } } } },
+          "401": {
+            "description": "Missing or invalid signature",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    }
+  }
+}
