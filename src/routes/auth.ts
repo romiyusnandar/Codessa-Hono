@@ -4,6 +4,7 @@ import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { sign } from "hono/jwt";
 import { Octokit } from "octokit";
 import { ObjectId } from "mongodb";
+import { z } from "zod";
 import { collections } from "../db/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/require-auth.js";
 
@@ -71,6 +72,7 @@ authRoute.get("/github/callback", async (c) => {
       $set: {
         githubId: String(githubUser.id),
         username: githubUser.login,
+        avatarUrl: githubUser.avatar_url,
         accessToken: tokenData.access_token,
       },
       $unset: { tokenRevokedAt: "" },
@@ -111,11 +113,39 @@ authRoute.get("/me", requireAuth, async (c) => {
     id: user._id,
     username: user.username,
     githubId: user.githubId,
+    avatarUrl: user.avatarUrl,
     tokenRevoked: Boolean(user.tokenRevokedAt),
+    settings: user.settings ?? {},
   });
 });
 
 authRoute.post("/logout", (c) => {
   deleteCookie(c, "session", { path: "/" });
   return c.json({ ok: true });
+});
+
+const updateSettingsSchema = z.object({
+  reviewLanguage: z.string().min(2).max(50).optional(),
+});
+
+authRoute.patch("/settings", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => null);
+  const parsed = updateSettingsSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return c.json({ error: "Invalid settings payload" }, 400);
+  }
+
+  const result = await collections.users.findOneAndUpdate(
+    { _id: new ObjectId(userId) },
+    { $set: Object.fromEntries(Object.entries(parsed.data).map(([key, value]) => [`settings.${key}`, value])) },
+    { returnDocument: "after" }
+  );
+
+  if (!result) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  return c.json({ settings: result.settings ?? {} });
 });

@@ -36,15 +36,23 @@ export class DeepseekService {
     this.apiKey = apiKey;
   }
 
-  async reviewFiles(files: PullRequestFile[], customInstructions?: string): Promise<ReviewResult> {
+  async reviewFiles(
+    files: PullRequestFile[],
+    options?: { customInstructions?: string; language?: string }
+  ): Promise<ReviewResult> {
     const diffText = files
       .filter((f) => f.patch)
       .map((f) => `### File: ${f.filename} (${f.status})\n${annotatePatchWithLineNumbers(f.patch!)}`)
       .join("\n\n");
 
-    const userPrompt = customInstructions
-      ? `${customInstructions}\n\nDiff to review:\n${diffText}`
-      : `Diff to review:\n${diffText}`;
+    const instructions = [
+      options?.language ? `Write the "summary" and all "comment" text in ${options.language}.` : null,
+      options?.customInstructions ?? null,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const userPrompt = instructions ? `${instructions}\n\nDiff to review:\n${diffText}` : `Diff to review:\n${diffText}`;
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",

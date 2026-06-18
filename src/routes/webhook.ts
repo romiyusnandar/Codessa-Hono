@@ -55,6 +55,8 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
     createdAt: new Date(),
   });
 
+  const repoOwner = await collections.users.findOne({ _id: repository.userId });
+
   runReview({
     owner,
     repo,
@@ -63,6 +65,7 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
     reviewId: insertedId,
     installationId,
     customInstructions: repository.customInstructions,
+    reviewLanguage: repoOwner?.settings?.reviewLanguage,
   }).catch((error) => {
     console.error("runReview failed:", error);
   });
@@ -92,6 +95,7 @@ async function runReview(params: {
   reviewId: ObjectId;
   installationId: number;
   customInstructions?: string;
+  reviewLanguage?: string;
 }) {
   const deepseek = new DeepseekService(deepseekApiKey);
   const octokit = await getInstallationOctokit(params.installationId);
@@ -101,7 +105,10 @@ async function runReview(params: {
     await github.setCommitStatus(params.owner, params.repo, params.commitSha, "pending", "Codessa is reviewing this PR");
 
     const files = await github.getPullRequestFiles(params.owner, params.repo, params.pullNumber);
-    const result = await deepseek.reviewFiles(files, params.customInstructions);
+    const result = await deepseek.reviewFiles(files, {
+      customInstructions: params.customInstructions,
+      language: params.reviewLanguage,
+    });
 
     const validLinesByFile = new Map(files.map((f) => [f.filename, f.patch ? getValidCommentLines(f.patch) : new Set<number>()]));
     const isLineValid = (file: string, line: number | null) =>

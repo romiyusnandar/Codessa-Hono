@@ -1,11 +1,17 @@
 import type { ObjectId } from "mongodb";
 
+export type UserSettings = {
+  reviewLanguage?: string;
+};
+
 export type User = {
   _id?: ObjectId;
   githubId: string;
   username: string;
+  avatarUrl?: string;
   accessToken?: string;
   tokenRevokedAt?: Date;
+  settings?: UserSettings;
   createdAt: Date;
 };
 
