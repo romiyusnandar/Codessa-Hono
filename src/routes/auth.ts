@@ -7,6 +7,9 @@ import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { collections } from "../db/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/require-auth.js";
+import { SUPPORTED_LANGUAGES } from "../constants/languages.js";
+
+const supportedLanguageCodes = SUPPORTED_LANGUAGES.map((l) => l.code) as [string, ...string[]];
 
 const clientId = process.env.GITHUB_CLIENT_ID ?? "";
 const clientSecret = process.env.GITHUB_CLIENT_SECRET ?? "";
@@ -127,8 +130,12 @@ authRoute.post("/logout", (c) => {
   return c.json({ ok: true });
 });
 
+authRoute.get("/languages", (c) => {
+  return c.json(SUPPORTED_LANGUAGES);
+});
+
 const updateSettingsSchema = z.object({
-  reviewLanguage: z.string().min(2).max(50).optional(),
+  reviewLanguage: z.enum(supportedLanguageCodes).optional(),
 });
 
 authRoute.patch("/settings", requireAuth, async (c) => {

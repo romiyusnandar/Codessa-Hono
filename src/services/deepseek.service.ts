@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PullRequestFile } from "./github.service.js";
 import { annotatePatchWithLineNumbers } from "../utils/diff.js";
+import { getLanguageLabel } from "../constants/languages.js";
 
 const reviewCommentSchema = z.object({
   file: z.string(),
@@ -15,8 +16,6 @@ const reviewResultSchema = z.object({
 });
 
 export type ReviewResult = z.infer<typeof reviewResultSchema>;
-
-const DEFAULT_REVIEW_LANGUAGE = "English";
 
 const SYSTEM_PROMPT = `You are Codessa, an expert code reviewer for pull requests written in any programming language.
 Review the provided diff and respond ONLY with valid JSON matching this shape:
@@ -47,7 +46,7 @@ export class DeepseekService {
       .map((f) => `### File: ${f.filename} (${f.status})\n${annotatePatchWithLineNumbers(f.patch!)}`)
       .join("\n\n");
 
-    const language = options?.language ?? DEFAULT_REVIEW_LANGUAGE;
+    const language = getLanguageLabel(options?.language);
 
     const instructions = [
       `Write the "summary" and all "comment" text in ${language}.`,

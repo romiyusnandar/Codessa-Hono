@@ -78,7 +78,7 @@
           "tokenRevoked": { "type": "boolean" },
           "settings": {
             "type": "object",
-            "properties": { "reviewLanguage": { "type": "string", "example": "Indonesian" } }
+            "properties": { "reviewLanguage": { "type": "string", "enum": ["en", "id", "zh"], "example": "id" } }
           }
         }
       }
@@ -141,7 +141,7 @@
                   "githubId": "583231",
                   "avatarUrl": "https://avatars.githubusercontent.com/u/583231?v=4",
                   "tokenRevoked": false,
-                  "settings": { "reviewLanguage": "Indonesian" }
+                  "settings": { "reviewLanguage": "id" }
                 }
               }
             }
@@ -164,9 +164,9 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": { "reviewLanguage": { "type": "string", "minLength": 2, "maxLength": 50 } }
+                "properties": { "reviewLanguage": { "type": "string", "enum": ["en", "id", "zh"] } }
               },
-              "example": { "reviewLanguage": "Indonesian" }
+              "example": { "reviewLanguage": "id" }
             }
           }
         },
@@ -174,7 +174,7 @@
           "200": {
             "description": "Updated settings",
             "content": {
-              "application/json": { "example": { "settings": { "reviewLanguage": "Indonesian" } } }
+              "application/json": { "example": { "settings": { "reviewLanguage": "id" } } }
             }
           },
           "400": {
@@ -194,6 +194,26 @@
         "summary": "Log out (clears session cookie)",
         "responses": {
           "200": { "description": "Logged out", "content": { "application/json": { "example": { "ok": true } } } }
+        }
+      }
+    },
+    "/auth/languages": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "List supported review languages (for populating a language dropdown)",
+        "responses": {
+          "200": {
+            "description": "Supported languages",
+            "content": {
+              "application/json": {
+                "example": [
+                  { "code": "en", "label": "English" },
+                  { "code": "id", "label": "Indonesian" },
+                  { "code": "zh", "label": "Chinese" }
+                ]
+              }
+            }
+          }
         }
       }
     },
