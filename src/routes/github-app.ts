@@ -7,6 +7,7 @@ import { requireAuth, type AuthVariables } from "../middleware/require-auth.js";
 
 const appSlug = process.env.GITHUB_APP_SLUG ?? "";
 const jwtSecret = process.env.JWT_SECRET ?? "";
+const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
 
 export const githubAppRoute = new Hono<{ Variables: AuthVariables }>();
 
@@ -23,7 +24,7 @@ githubAppRoute.get("/callback", async (c) => {
   const state = c.req.query("state");
 
   if (!installationId || !state || setupAction === "request") {
-    return c.json({ error: "Invalid or pending installation request" }, 400);
+    return c.redirect(`${frontendUrl}/dashboard?install_error=invalid_or_pending`);
   }
 
   let userId: string;
@@ -31,7 +32,7 @@ githubAppRoute.get("/callback", async (c) => {
     const payload = await verify(state, jwtSecret, "HS256");
     userId = payload.userId as string;
   } catch {
-    return c.json({ error: "Invalid or expired state" }, 400);
+    return c.redirect(`${frontendUrl}/dashboard?install_error=invalid_state`);
   }
 
   const account = await getInstallationForAccount(Number(installationId));
@@ -52,5 +53,5 @@ githubAppRoute.get("/callback", async (c) => {
     { upsert: true }
   );
 
-  return c.json({ ok: true, installationId: Number(installationId) });
+  return c.redirect(`${frontendUrl}/dashboard?installed=1`);
 });

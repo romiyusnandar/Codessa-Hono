@@ -12,6 +12,7 @@ const clientId = process.env.GITHUB_CLIENT_ID ?? "";
 const clientSecret = process.env.GITHUB_CLIENT_SECRET ?? "";
 const callbackUrl = process.env.GITHUB_CALLBACK_URL ?? "http://localhost:3000/auth/github/callback";
 const jwtSecret = process.env.JWT_SECRET ?? "";
+const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
 const isProd = process.env.NODE_ENV === "production";
 // Cross-site cookies (frontend on a different domain than the API) require SameSite=None + Secure.
 const cookieOptions = isProd
@@ -47,7 +48,7 @@ authRoute.get("/github/callback", async (c) => {
   deleteCookie(c, "oauth_state", { path: "/" });
 
   if (!code || !state || !expectedState || state !== expectedState) {
-    return c.json({ error: "Invalid OAuth state" }, 400);
+    return c.redirect(`${frontendUrl}/?login_error=invalid_state`);
   }
 
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
@@ -63,7 +64,7 @@ authRoute.get("/github/callback", async (c) => {
 
   const tokenData = (await tokenResponse.json()) as { access_token?: string; error?: string };
   if (!tokenData.access_token) {
-    return c.json({ error: tokenData.error ?? "Failed to obtain access token" }, 400);
+    return c.redirect(`${frontendUrl}/?login_error=token_exchange_failed`);
   }
 
   const octokit = new Octokit({ auth: tokenData.access_token });
@@ -85,7 +86,7 @@ authRoute.get("/github/callback", async (c) => {
   );
 
   if (!result?._id) {
-    return c.json({ error: "Failed to create user" }, 500);
+    return c.redirect(`${frontendUrl}/?login_error=user_creation_failed`);
   }
 
   const jwt = await sign(
@@ -100,7 +101,7 @@ authRoute.get("/github/callback", async (c) => {
     path: "/",
   });
 
-  return c.redirect("/auth/me");
+  return c.redirect(`${frontendUrl}/dashboard`);
 });
 
 authRoute.get("/me", requireAuth, async (c) => {
