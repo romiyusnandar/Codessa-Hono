@@ -16,6 +16,8 @@ const reviewResultSchema = z.object({
 
 export type ReviewResult = z.infer<typeof reviewResultSchema>;
 
+const DEFAULT_REVIEW_LANGUAGE = "English";
+
 const SYSTEM_PROMPT = `You are Codessa, an expert code reviewer for pull requests written in any programming language.
 Review the provided diff and respond ONLY with valid JSON matching this shape:
 {
@@ -45,8 +47,10 @@ export class DeepseekService {
       .map((f) => `### File: ${f.filename} (${f.status})\n${annotatePatchWithLineNumbers(f.patch!)}`)
       .join("\n\n");
 
+    const language = options?.language ?? DEFAULT_REVIEW_LANGUAGE;
+
     const instructions = [
-      options?.language ? `Write the "summary" and all "comment" text in ${options.language}.` : null,
+      `Write the "summary" and all "comment" text in ${language}.`,
       options?.customInstructions ?? null,
     ]
       .filter(Boolean)
