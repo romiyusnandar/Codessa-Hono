@@ -27,7 +27,9 @@ Review the provided diff and respond ONLY with valid JSON matching this shape:
 }
 Focus on bugs, security issues, performance, and maintainability.
 
-Each diff line is prefixed with its exact line number in the NEW version of the file, followed by the original "+"/"-"/" " marker, e.g. "12+    return a - b;". Removed lines (marker "-") have no line number since they don't exist in the new file. Always copy the given line number exactly for the "line" field — do not count or recalculate it yourself. If a comment refers to a removed line or can't be tied to a specific numbered line, set "line" to null. Do not include markdown fences in your response.`;
+Each diff line is prefixed with its exact line number in the NEW version of the file, followed by the original "+"/"-"/" " marker, e.g. "12+    return a - b;". Removed lines (marker "-") have no line number since they don't exist in the new file. Always copy the given line number exactly for the "line" field — do not count or recalculate it yourself. If a comment refers to a removed line or can't be tied to a specific numbered line, set "line" to null.
+
+Never mention a line number inside the "comment" text itself (e.g. don't write "(line 12)" or "(baris 12)") — the comment is already anchored to the correct line via the "line" field, and repeating the number in prose risks it not matching. Just describe the issue and suggestion directly. Do not include markdown fences in your response.`;
 
 export class DeepseekService {
   private apiKey: string;
