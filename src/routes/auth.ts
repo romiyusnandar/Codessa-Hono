@@ -13,6 +13,10 @@ const clientSecret = process.env.GITHUB_CLIENT_SECRET ?? "";
 const callbackUrl = process.env.GITHUB_CALLBACK_URL ?? "http://localhost:3000/auth/github/callback";
 const jwtSecret = process.env.JWT_SECRET ?? "";
 const isProd = process.env.NODE_ENV === "production";
+// Cross-site cookies (frontend on a different domain than the API) require SameSite=None + Secure.
+const cookieOptions = isProd
+  ? { secure: true, sameSite: "None" as const }
+  : { secure: false, sameSite: "Lax" as const };
 
 export const authRoute = new Hono<{ Variables: AuthVariables }>();
 
@@ -21,8 +25,7 @@ authRoute.get("/github", (c) => {
 
   setCookie(c, "oauth_state", state, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "Lax",
+    ...cookieOptions,
     maxAge: 600,
     path: "/",
   });
@@ -92,8 +95,7 @@ authRoute.get("/github/callback", async (c) => {
 
   setCookie(c, "session", jwt, {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "Lax",
+    ...cookieOptions,
     maxAge: 7 * 24 * 3600,
     path: "/",
   });

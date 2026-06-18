@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { connectMongo } from "./db/client.js";
 import { webhookRoute } from "./routes/webhook.js";
 import { reviewsRoute } from "./routes/reviews.js";
@@ -10,6 +11,14 @@ import { githubAppRoute } from "./routes/github-app.js";
 import { docsRoute } from "./routes/docs.js";
 
 const app = new Hono();
+
+app.use(
+  "*",
+  cors({
+    origin: (origin) => origin ?? "*",
+    credentials: true,
+  })
+);
 
 app.get("/", (c) => c.json({ name: "Codessa", status: "ok", docs: "/docs" }));
 app.route("/webhooks", webhookRoute);
