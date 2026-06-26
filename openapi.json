@@ -6,7 +6,7 @@
     "description": "AI-powered GitHub pull request review system. Authentication uses an httpOnly `session` cookie set after completing the GitHub OAuth login flow — browser requests automatically include it; non-browser clients must forward the `Set-Cookie` value."
   },
   "servers": [
-    { "url": "https://codessa-hono.onrender.com", "description": "Production" },
+    { "url": "https://api.codessa.xyz", "description": "Production" },
     { "url": "http://localhost:3000", "description": "Local" }
   ],
   "tags": [
