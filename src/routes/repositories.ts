@@ -14,6 +14,7 @@ repositoriesRoute.get("/", async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const perPage = Math.min(100, Math.max(1, Number(c.req.query("perPage") ?? 20)));
   const search = c.req.query("search")?.trim().toLowerCase();
+  const enabledFilter = c.req.query("enabled");
 
   const installations = await collections.installations.find({ userId, suspendedAt: { $exists: false } }).toArray();
 
@@ -31,7 +32,9 @@ repositoriesRoute.get("/", async (c) => {
     .map((repo) => ({
       ...repo,
       enabled: enabledByFullName.get(repo.fullName)?.enabled ?? false,
-    }));
+    }))
+    .filter((repo) => enabledFilter === undefined || repo.enabled === (enabledFilter === "true"))
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 
   const total = repos.length;
   const totalPages = Math.max(1, Math.ceil(total / perPage));

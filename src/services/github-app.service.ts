@@ -20,6 +20,7 @@ export type InstallationRepo = {
   name: string;
   private: boolean;
   defaultBranch: string;
+  createdAt: string | null;
 };
 
 export async function getInstallationOctokit(installationId: number) {
@@ -37,6 +38,7 @@ export async function listInstallationRepos(installationId: number): Promise<Ins
     name: repo.name,
     private: repo.private,
     defaultBranch: repo.default_branch ?? "main",
+    createdAt: repo.created_at ?? null,
   }));
 }
 
