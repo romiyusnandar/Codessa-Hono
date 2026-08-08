@@ -348,6 +348,40 @@
         }
       }
     },
+    "/reviews/stats": {
+      "get": {
+        "tags": ["Reviews"],
+        "summary": "Aggregated AI review statistics for your repositories",
+        "description": "Totals across reviews that were actually run by the AI (status success or failed). PR count is the number of review runs, so multiple commit pushes on the same PR count separately.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "repo", "in": "query", "schema": { "type": "string" }, "description": "Filter by full repo name, e.g. octocat/hello-world" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregated statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalPullRequests": { "type": "integer", "description": "Number of AI review runs (success + failed)" },
+                    "totalComments": { "type": "integer", "description": "Total inline comments produced by the AI" },
+                    "totalReviewTimeMs": { "type": "integer", "description": "Total review duration in milliseconds" },
+                    "averageReviewTimeMs": { "type": "integer", "description": "Average review duration in milliseconds" }
+                  }
+                },
+                "example": { "totalPullRequests": 42, "totalComments": 187, "totalReviewTimeMs": 512340, "averageReviewTimeMs": 12198 }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
     "/reviews/{id}": {
       "get": {
         "tags": ["Reviews"],
