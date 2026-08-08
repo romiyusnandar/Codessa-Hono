@@ -31,6 +31,43 @@ Each diff line is prefixed with its exact line number in the NEW version of the 
 
 Never mention a line number inside the "comment" text itself (e.g. don't write "(line 12)" or "(baris 12)") — the comment is already anchored to the correct line via the "line" field, and repeating the number in prose risks it not matching. Just describe the issue and suggestion directly. Do not include markdown fences in your response.`;
 
+const TONE_INSTRUCTIONS: Record<string, string> = {
+  friendly: "Write comments in a friendly, encouraging tone, as a supportive teammate would.",
+  strict: "Write comments in a strict, no-nonsense tone. Be direct about problems, don't soften criticism.",
+  concise: "Write comments as concisely as possible — short sentences, no filler, straight to the point.",
+};
+
+export type AnalysisFocus = {
+  security?: boolean;
+  performance?: boolean;
+  bugs?: boolean;
+  codeStyle?: boolean;
+};
+
+const FOCUS_LABELS: Record<keyof AnalysisFocus, string> = {
+  security: "security issues",
+  performance: "performance issues",
+  bugs: "bugs and correctness issues",
+  codeStyle: "code style and maintainability",
+};
+
+function buildFocusInstruction(focus?: AnalysisFocus): string | null {
+  if (!focus) return null;
+
+  const included = (Object.keys(FOCUS_LABELS) as (keyof AnalysisFocus)[]).filter((key) => focus[key] !== false);
+  const excluded = (Object.keys(FOCUS_LABELS) as (keyof AnalysisFocus)[]).filter((key) => focus[key] === false);
+
+  if (excluded.length === 0) return null;
+
+  if (included.length === 0) {
+    return "No analysis focus areas are enabled; fall back to a general review covering bugs, security, performance, and maintainability.";
+  }
+
+  return `Focus your review specifically on: ${included.map((k) => FOCUS_LABELS[k]).join(", ")}. Do not comment on ${excluded
+    .map((k) => FOCUS_LABELS[k])
+    .join(", ")}.`;
+}
+
 export class DeepseekService {
   private apiKey: string;
   private baseUrl = "https://api.deepseek.com";
@@ -41,7 +78,7 @@ export class DeepseekService {
 
   async reviewFiles(
     files: PullRequestFile[],
-    options?: { customInstructions?: string; language?: string }
+    options?: { customInstructions?: string; language?: string; tone?: string; analysisFocus?: AnalysisFocus }
   ): Promise<ReviewResult> {
     const diffText = files
       .filter((f) => f.patch)
@@ -52,6 +89,8 @@ export class DeepseekService {
 
     const instructions = [
       `Write the "summary" and all "comment" text in ${language}.`,
+      options?.tone ? TONE_INSTRUCTIONS[options.tone] ?? null : null,
+      buildFocusInstruction(options?.analysisFocus),
       options?.customInstructions ?? null,
     ]
       .filter(Boolean)

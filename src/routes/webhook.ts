@@ -1,11 +1,14 @@
 import { Hono } from "hono";
 import { ObjectId } from "mongodb";
+import { minimatch } from "minimatch";
 import { collections } from "../db/client.js";
 import { verifyGithubSignature, type WebhookVariables } from "../middleware/verify-github-signature.js";
 import { GithubService } from "../services/github.service.js";
 import { DeepseekService } from "../services/deepseek.service.js";
 import { getInstallationOctokit } from "../services/github-app.service.js";
+import { getRepoReviewConfig } from "../services/codessa-config.service.js";
 import { getValidCommentLines } from "../utils/diff.js";
+import type { ReviewAnalysisFocus } from "../constants/review-config.js";
 
 const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY ?? "";
@@ -65,6 +68,10 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
     reviewId: insertedId,
     installationId,
     customInstructions: repository.customInstructions,
+    excludePaths: repository.excludePaths,
+    tone: repository.tone,
+    severityThreshold: repository.severityThreshold,
+    analysisFocus: repository.analysisFocus,
     reviewLanguage: repoOwner?.settings?.reviewLanguage,
   }).catch((error) => {
     console.error("runReview failed:", error);
@@ -95,6 +102,10 @@ async function runReview(params: {
   reviewId: ObjectId;
   installationId: number;
   customInstructions?: string;
+  excludePaths?: string[];
+  tone?: string;
+  severityThreshold?: string;
+  analysisFocus?: ReviewAnalysisFocus;
   reviewLanguage?: string;
 }) {
   const deepseek = new DeepseekService(deepseekApiKey);
@@ -106,34 +117,70 @@ async function runReview(params: {
   let commitMessage: string | undefined;
 
   try {
+    const config = await getRepoReviewConfig(octokit, params.owner, params.repo);
+
+    if (config?.auto_review === false) {
+      await collections.reviews.updateOne(
+        { _id: params.reviewId },
+        {
+          $set: {
+            status: "skipped",
+            errorMessage: "Review disabled via .github/.codessa.yml (auto_review: false)",
+            finishedAt: new Date(),
+          },
+        }
+      );
+      return;
+    }
+
     await github.setCommitStatus(params.owner, params.repo, params.commitSha, "pending", "Codessa is reviewing this PR");
 
-    const files = await github.getPullRequestFiles(params.owner, params.repo, params.pullNumber);
+    const allFiles = await github.getPullRequestFiles(params.owner, params.repo, params.pullNumber);
+    const excludePaths = config?.review_rules?.ignore_paths ?? params.excludePaths ?? [];
+    const files = allFiles.filter((f) => !excludePaths.some((pattern) => minimatch(f.filename, pattern, { dot: true })));
+
     additions = files.reduce((sum, f) => sum + f.additions, 0);
     deletions = files.reduce((sum, f) => sum + f.deletions, 0);
     commitMessage = await github.getCommitMessage(params.owner, params.repo, params.commitSha);
 
+    const severityThreshold = config?.analysis_focus?.severity_threshold ?? params.severityThreshold ?? "balanced";
+
+    const analysisFocus: ReviewAnalysisFocus | undefined =
+      config?.analysis_focus || params.analysisFocus
+        ? {
+            security: config?.analysis_focus?.security ?? params.analysisFocus?.security,
+            performance: config?.analysis_focus?.performance ?? params.analysisFocus?.performance,
+            bugs: config?.analysis_focus?.bugs ?? params.analysisFocus?.bugs,
+            codeStyle: config?.analysis_focus?.code_style ?? params.analysisFocus?.codeStyle,
+          }
+        : undefined;
+
     const result = await deepseek.reviewFiles(files, {
-      customInstructions: params.customInstructions,
-      language: params.reviewLanguage,
+      customInstructions: config?.custom_instructions ?? params.customInstructions,
+      language: config?.language ?? params.reviewLanguage,
+      tone: config?.tone ?? params.tone,
+      analysisFocus,
     });
+
+    const reportedComments =
+      severityThreshold === "critical_only" ? result.comments.filter((c) => c.severity === "critical") : result.comments;
 
     const validLinesByFile = new Map(files.map((f) => [f.filename, f.patch ? getValidCommentLines(f.patch) : new Set<number>()]));
     const isLineValid = (file: string, line: number | null) =>
       line !== null && (validLinesByFile.get(file)?.has(line) ?? false);
 
-    const comments = result.comments.map((c) => ({
+    const comments = reportedComments.map((c) => ({
       filePath: c.file,
       line: c.line,
       severity: c.severity,
       comment: c.comment,
     }));
 
-    const inlineComments = result.comments
+    const inlineComments = reportedComments
       .filter((c) => isLineValid(c.file, c.line))
       .map((c) => ({ path: c.file, line: c.line as number, body: `**[${c.severity}]** ${c.comment}` }));
 
-    const unplacedComments = result.comments.filter((c) => !isLineValid(c.file, c.line));
+    const unplacedComments = reportedComments.filter((c) => !isLineValid(c.file, c.line));
     const summary = unplacedComments.length
       ? `${result.summary}\n\n---\n**Additional notes:**\n${unplacedComments
           .map((c) => `- **[${c.severity}]** \`${c.file}\`: ${c.comment}`)
@@ -142,13 +189,17 @@ async function runReview(params: {
 
     await github.postReviewComment(params.owner, params.repo, params.pullNumber, summary, inlineComments);
 
-    const hasCritical = result.comments.some((c) => c.severity === "critical");
+    const shouldFail =
+      severityThreshold === "strict"
+        ? reportedComments.some((c) => c.severity === "critical" || c.severity === "major")
+        : reportedComments.some((c) => c.severity === "critical");
+
     await github.setCommitStatus(
       params.owner,
       params.repo,
       params.commitSha,
-      hasCritical ? "failure" : "success",
-      hasCritical ? "Codessa found critical issues" : "Codessa review complete"
+      shouldFail ? "failure" : "success",
+      shouldFail ? "Codessa found issues that need attention" : "Codessa review complete"
     );
 
     await collections.reviews.updateOne(

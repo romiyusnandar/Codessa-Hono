@@ -69,7 +69,26 @@
           "private": { "type": "boolean" },
           "defaultBranch": { "type": "string", "example": "main" },
           "installationId": { "type": "integer", "example": 54321 },
-          "enabled": { "type": "boolean" }
+          "enabled": { "type": "boolean" },
+          "hasCustomConfig": { "type": "boolean", "description": "Whether any dashboard review config has been set for this repo" }
+        }
+      },
+      "RepositoryConfig": {
+        "type": "object",
+        "properties": {
+          "customInstructions": { "type": "string", "nullable": true, "example": "Always suggest a code snippet for fixes." },
+          "tone": { "type": "string", "nullable": true, "enum": ["friendly", "strict", "concise"] },
+          "severityThreshold": { "type": "string", "nullable": true, "enum": ["balanced", "critical_only", "strict"] },
+          "analysisFocus": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "security": { "type": "boolean" },
+              "performance": { "type": "boolean" },
+              "bugs": { "type": "boolean" },
+              "codeStyle": { "type": "boolean" }
+            }
+          }
         }
       },
       "Me": {
@@ -282,7 +301,8 @@
                       "private": false,
                       "defaultBranch": "main",
                       "installationId": 54321,
-                      "enabled": true
+                      "enabled": true,
+                      "hasCustomConfig": false
                     }
                   ],
                   "page": 1,
@@ -329,6 +349,66 @@
         ],
         "responses": {
           "200": { "description": "Disabled", "content": { "application/json": { "example": { "ok": true } } } }
+        }
+      }
+    },
+    "/repositories/{owner}/{repo}/config": {
+      "get": {
+        "tags": ["Repositories"],
+        "summary": "Get dashboard review config for a repository",
+        "description": "These are fallback settings used when a field isn't set in the repo's .github/.codessa.yml — the YAML file always wins per-field when present.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "schema": { "type": "string" }, "example": "octocat" },
+          { "name": "repo", "in": "path", "required": true, "schema": { "type": "string" }, "example": "hello-world" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current dashboard config",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RepositoryConfig" } } }
+          },
+          "404": {
+            "description": "Repository not enabled yet",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
+      "patch": {
+        "tags": ["Repositories"],
+        "summary": "Update dashboard review config for a repository",
+        "description": "Only the provided fields are updated. The repository must already be enabled (via /repositories/{owner}/{repo}/enable) before its config can be set.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "owner", "in": "path", "required": true, "schema": { "type": "string" }, "example": "octocat" },
+          { "name": "repo", "in": "path", "required": true, "schema": { "type": "string" }, "example": "hello-world" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RepositoryConfig" },
+              "example": {
+                "customInstructions": "Always suggest a code snippet for fixes.",
+                "tone": "friendly",
+                "severityThreshold": "balanced",
+                "analysisFocus": { "security": true, "performance": true, "bugs": true, "codeStyle": false }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated config",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RepositoryConfig" } } }
+          },
+          "400": {
+            "description": "Invalid config payload",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "404": {
+            "description": "Repository not enabled yet",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
         }
       }
     },

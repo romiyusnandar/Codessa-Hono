@@ -1,12 +1,28 @@
 import { Hono } from "hono";
 import { ObjectId } from "mongodb";
+import { z } from "zod";
 import { collections } from "../db/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/require-auth.js";
 import { listInstallationRepos } from "../services/github-app.service.js";
+import { REVIEW_TONES, SEVERITY_THRESHOLDS } from "../constants/review-config.js";
 
 export const repositoriesRoute = new Hono<{ Variables: AuthVariables }>();
 
 repositoriesRoute.use("*", requireAuth);
+
+const repoConfigSchema = z.object({
+  customInstructions: z.string().max(4000).optional(),
+  tone: z.enum(REVIEW_TONES).optional(),
+  severityThreshold: z.enum(SEVERITY_THRESHOLDS).optional(),
+  analysisFocus: z
+    .object({
+      security: z.boolean().optional(),
+      performance: z.boolean().optional(),
+      bugs: z.boolean().optional(),
+      codeStyle: z.boolean().optional(),
+    })
+    .optional(),
+});
 
 repositoriesRoute.get("/", async (c) => {
   const userId = new ObjectId(c.get("userId"));
@@ -29,10 +45,14 @@ repositoriesRoute.get("/", async (c) => {
 
   const repos = allRepos
     .filter((repo) => !search || repo.fullName.toLowerCase().includes(search))
-    .map((repo) => ({
-      ...repo,
-      enabled: enabledByFullName.get(repo.fullName)?.enabled ?? false,
-    }))
+    .map((repo) => {
+      const saved = enabledByFullName.get(repo.fullName);
+      return {
+        ...repo,
+        enabled: saved?.enabled ?? false,
+        hasCustomConfig: Boolean(saved?.customInstructions || saved?.tone || saved?.severityThreshold || saved?.analysisFocus),
+      };
+    })
     .filter((repo) => enabledFilter === undefined || repo.enabled === (enabledFilter === "true"))
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 
@@ -91,4 +111,51 @@ repositoriesRoute.post("/:owner/:repo/disable", async (c) => {
   await collections.repositories.updateOne({ userId, fullName }, { $set: { enabled: false } });
 
   return c.json({ ok: true });
+});
+
+repositoriesRoute.get("/:owner/:repo/config", async (c) => {
+  const userId = new ObjectId(c.get("userId"));
+  const { owner, repo } = c.req.param();
+  const fullName = `${owner}/${repo}`;
+
+  const repository = await collections.repositories.findOne({ userId, fullName });
+  if (!repository) {
+    return c.json({ error: "Repository not enabled yet" }, 404);
+  }
+
+  return c.json({
+    customInstructions: repository.customInstructions ?? null,
+    tone: repository.tone ?? null,
+    severityThreshold: repository.severityThreshold ?? null,
+    analysisFocus: repository.analysisFocus ?? null,
+  });
+});
+
+repositoriesRoute.patch("/:owner/:repo/config", async (c) => {
+  const userId = new ObjectId(c.get("userId"));
+  const { owner, repo } = c.req.param();
+  const fullName = `${owner}/${repo}`;
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = repoConfigSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid config payload" }, 400);
+  }
+
+  const result = await collections.repositories.findOneAndUpdate(
+    { userId, fullName },
+    { $set: parsed.data },
+    { returnDocument: "after" }
+  );
+
+  if (!result) {
+    return c.json({ error: "Repository not enabled yet" }, 404);
+  }
+
+  return c.json({
+    customInstructions: result.customInstructions ?? null,
+    tone: result.tone ?? null,
+    severityThreshold: result.severityThreshold ?? null,
+    analysisFocus: result.analysisFocus ?? null,
+  });
 });

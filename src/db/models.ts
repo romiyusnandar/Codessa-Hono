@@ -1,4 +1,5 @@
 import type { ObjectId } from "mongodb";
+import type { ReviewTone, SeverityThreshold, ReviewAnalysisFocus } from "../constants/review-config.js";
 
 export type UserSettings = {
   reviewLanguage?: string;
@@ -34,6 +35,9 @@ export type Repository = {
   enabled: boolean;
   excludePaths?: string[];
   customInstructions?: string;
+  tone?: ReviewTone;
+  severityThreshold?: SeverityThreshold;
+  analysisFocus?: ReviewAnalysisFocus;
   createdAt: Date;
 };
 
