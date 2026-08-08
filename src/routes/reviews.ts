@@ -7,29 +7,47 @@ export const reviewsRoute = new Hono<{ Variables: AuthVariables }>();
 
 reviewsRoute.use("*", requireAuth);
 
+function getRepoName(fullName: string): string {
+  return fullName.split("/").pop() ?? fullName;
+}
+
 reviewsRoute.get("/", async (c) => {
   const userId = new ObjectId(c.get("userId"));
   const repoFullName = c.req.query("repo");
 
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const perPage = Math.min(100, Math.max(1, Number(c.req.query("perPage") ?? 20)));
+
   const repoFilter = repoFullName ? { userId, fullName: repoFullName } : { userId };
   const ownedRepos = await collections.repositories.find(repoFilter).toArray();
+
   if (ownedRepos.length === 0) {
-    return c.json([]);
+    return c.json({ data: [], page, perPage, total: 0, totalPages: 1 });
   }
 
+  const reviewFilter = { repositoryId: { $in: ownedRepos.map((r) => r._id as ObjectId) } };
+  const total = await collections.reviews.countDocuments(reviewFilter);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
   const rows = await collections.reviews
-    .find({ repositoryId: { $in: ownedRepos.map((r) => r._id as ObjectId) } })
+    .find(reviewFilter)
     .sort({ createdAt: -1 })
+    .skip((page - 1) * perPage)
+    .limit(perPage)
     .toArray();
 
   const fullNameById = new Map(ownedRepos.map((r) => [r._id!.toString(), r.fullName]));
-  const data = rows.map((row) => ({
-    ...row,
-    shortSha: row.commitSha.slice(0, 7),
-    repositoryFullName: fullNameById.get(row.repositoryId.toString()),
-  }));
+  const data = rows.map((row) => {
+    const repositoryFullName = fullNameById.get(row.repositoryId.toString());
+    return {
+      ...row,
+      shortSha: row.commitSha.slice(0, 7),
+      repositoryFullName,
+      repositoryName: repositoryFullName ? getRepoName(repositoryFullName) : undefined,
+    };
+  });
 
-  return c.json(data);
+  return c.json({ data, page, perPage, total, totalPages });
 });
 
 reviewsRoute.get("/stats", async (c) => {
@@ -107,5 +125,10 @@ reviewsRoute.get("/:id", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  return c.json({ ...review, shortSha: review.commitSha.slice(0, 7), repositoryFullName: repository.fullName });
+  return c.json({
+    ...review,
+    shortSha: review.commitSha.slice(0, 7),
+    repositoryFullName: repository.fullName,
+    repositoryName: getRepoName(repository.fullName),
+  });
 });
