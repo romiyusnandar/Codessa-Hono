@@ -6,6 +6,7 @@ import { getLanguageLabel } from "../constants/languages.js";
 const reviewCommentSchema = z.object({
   file: z.string(),
   line: z.number().nullable(),
+  lineContent: z.string().nullable().optional(),
   severity: z.enum(["info", "minor", "major", "critical"]),
   comment: z.string(),
 });
@@ -22,12 +23,14 @@ Review the provided diff and respond ONLY with valid JSON matching this shape:
 {
   "summary": string,
   "comments": [
-    { "file": string, "line": number | null, "severity": "info" | "minor" | "major" | "critical", "comment": string }
+    { "file": string, "line": number | null, "lineContent": string | null, "severity": "info" | "minor" | "major" | "critical", "comment": string }
   ]
 }
 Focus on bugs, security issues, performance, and maintainability.
 
 Each diff line is prefixed with its exact line number in the NEW version of the file, followed by the original "+"/"-"/" " marker, e.g. "12+    return a - b;". Removed lines (marker "-") have no line number since they don't exist in the new file. Always copy the given line number exactly for the "line" field — do not count or recalculate it yourself. If a comment refers to a removed line or can't be tied to a specific numbered line, set "line" to null.
+
+For "lineContent", copy the exact source code text of that same line verbatim (everything after the line number and the "+"/"-"/" " marker), trimmed of leading/trailing whitespace, exactly as it appears in the diff — do not paraphrase or retype it from memory. This is used to double-check you picked the right line, which matters most when multiple lines look similar (e.g. duplicate "break;" statements). Set "lineContent" to null whenever "line" is null.
 
 Never mention a line number inside the "comment" text itself (e.g. don't write "(line 12)" or "(baris 12)") — the comment is already anchored to the correct line via the "line" field, and repeating the number in prose risks it not matching. Just describe the issue and suggestion directly. Do not include markdown fences in your response.`;
 

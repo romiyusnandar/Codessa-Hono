@@ -7,7 +7,7 @@ import { GithubService } from "../services/github.service.js";
 import { DeepseekService } from "../services/deepseek.service.js";
 import { getInstallationOctokit } from "../services/github-app.service.js";
 import { getRepoReviewConfig } from "../services/codessa-config.service.js";
-import { getValidCommentLines } from "../utils/diff.js";
+import { getPatchLineContents, resolveCommentLine } from "../utils/diff.js";
 import type { ReviewAnalysisFocus } from "../constants/review-config.js";
 
 const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
@@ -169,22 +169,26 @@ async function runReview(params: {
     const reportedComments =
       severityThreshold === "critical_only" ? result.comments.filter((c) => c.severity === "critical") : result.comments;
 
-    const validLinesByFile = new Map(files.map((f) => [f.filename, f.patch ? getValidCommentLines(f.patch) : new Set<number>()]));
-    const isLineValid = (file: string, line: number | null) =>
-      line !== null && (validLinesByFile.get(file)?.has(line) ?? false);
+    const lineContentsByFile = new Map(
+      files.map((f) => [f.filename, f.patch ? getPatchLineContents(f.patch) : new Map<number, string>()])
+    );
+    const resolvedComments = reportedComments.map((c) => ({
+      ...c,
+      resolvedLine: resolveCommentLine(lineContentsByFile.get(c.file) ?? new Map(), c.line, c.lineContent),
+    }));
 
-    const comments = reportedComments.map((c) => ({
+    const comments = resolvedComments.map((c) => ({
       filePath: c.file,
-      line: c.line,
+      line: c.resolvedLine,
       severity: c.severity,
       comment: c.comment,
     }));
 
-    const inlineComments = reportedComments
-      .filter((c) => isLineValid(c.file, c.line))
-      .map((c) => ({ path: c.file, line: c.line as number, body: `**[${c.severity}]** ${c.comment}` }));
+    const inlineComments = resolvedComments
+      .filter((c) => c.resolvedLine !== null)
+      .map((c) => ({ path: c.file, line: c.resolvedLine as number, body: `**[${c.severity}]** ${c.comment}` }));
 
-    const unplacedComments = reportedComments.filter((c) => !isLineValid(c.file, c.line));
+    const unplacedComments = resolvedComments.filter((c) => c.resolvedLine === null);
     const summary = unplacedComments.length
       ? `${result.summary}\n\n---\n**Additional notes:**\n${unplacedComments
           .map((c) => `- **[${c.severity}]** \`${c.file}\`: ${c.comment}`)
