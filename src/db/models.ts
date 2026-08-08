@@ -49,6 +49,9 @@ export type Review = {
   repositoryId: ObjectId;
   pullNumber: number;
   commitSha: string;
+  commitMessage?: string;
+  additions?: number;
+  deletions?: number;
   status: "pending" | "running" | "success" | "failed" | "skipped";
   summary?: string;
   comments: ReviewComment[];

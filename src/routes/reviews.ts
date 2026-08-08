@@ -23,7 +23,11 @@ reviewsRoute.get("/", async (c) => {
     .toArray();
 
   const fullNameById = new Map(ownedRepos.map((r) => [r._id!.toString(), r.fullName]));
-  const data = rows.map((row) => ({ ...row, repositoryFullName: fullNameById.get(row.repositoryId.toString()) }));
+  const data = rows.map((row) => ({
+    ...row,
+    shortSha: row.commitSha.slice(0, 7),
+    repositoryFullName: fullNameById.get(row.repositoryId.toString()),
+  }));
 
   return c.json(data);
 });
@@ -103,5 +107,5 @@ reviewsRoute.get("/:id", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  return c.json({ ...review, repositoryFullName: repository.fullName });
+  return c.json({ ...review, shortSha: review.commitSha.slice(0, 7), repositoryFullName: repository.fullName });
 });

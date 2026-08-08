@@ -101,10 +101,18 @@ async function runReview(params: {
   const octokit = await getInstallationOctokit(params.installationId);
   const github = new GithubService(octokit);
 
+  let additions = 0;
+  let deletions = 0;
+  let commitMessage: string | undefined;
+
   try {
     await github.setCommitStatus(params.owner, params.repo, params.commitSha, "pending", "Codessa is reviewing this PR");
 
     const files = await github.getPullRequestFiles(params.owner, params.repo, params.pullNumber);
+    additions = files.reduce((sum, f) => sum + f.additions, 0);
+    deletions = files.reduce((sum, f) => sum + f.deletions, 0);
+    commitMessage = await github.getCommitMessage(params.owner, params.repo, params.commitSha);
+
     const result = await deepseek.reviewFiles(files, {
       customInstructions: params.customInstructions,
       language: params.reviewLanguage,
@@ -145,7 +153,17 @@ async function runReview(params: {
 
     await collections.reviews.updateOne(
       { _id: params.reviewId },
-      { $set: { status: "success", summary: result.summary, comments, finishedAt: new Date() } }
+      {
+        $set: {
+          status: "success",
+          summary: result.summary,
+          comments,
+          commitMessage,
+          additions,
+          deletions,
+          finishedAt: new Date(),
+        },
+      }
     );
   } catch (error) {
     try {
@@ -160,6 +178,9 @@ async function runReview(params: {
         $set: {
           status: "failed",
           errorMessage: error instanceof Error ? error.message : String(error),
+          commitMessage,
+          additions,
+          deletions,
           finishedAt: new Date(),
         },
       }
