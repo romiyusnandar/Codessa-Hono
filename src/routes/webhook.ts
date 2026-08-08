@@ -215,6 +215,7 @@ async function runReview(params: {
       {
         $set: {
           status: "success",
+          verdict: shouldFail ? "issues_found" : "passed",
           summary: result.summary,
           comments,
           commitMessage,
@@ -236,6 +237,7 @@ async function runReview(params: {
       {
         $set: {
           status: "failed",
+          verdict: "error",
           errorMessage: error instanceof Error ? error.message : String(error),
           commitMessage,
           additions,

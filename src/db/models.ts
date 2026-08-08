@@ -59,6 +59,13 @@ export type Review = {
   additions?: number;
   deletions?: number;
   status: "pending" | "running" | "success" | "failed" | "skipped";
+  /**
+   * Independent of `status`: `status` reflects whether the review PROCESS completed
+   * without errors, `verdict` reflects the OUTCOME the AI found in the code.
+   * A review can be `status: "success"` and `verdict: "issues_found"` at the same time —
+   * the review ran fine, it just found critical/major problems in the PR.
+   */
+  verdict?: "passed" | "issues_found" | "error";
   summary?: string;
   comments: ReviewComment[];
   promptTokens?: number;

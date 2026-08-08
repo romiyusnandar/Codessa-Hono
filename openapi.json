@@ -51,7 +51,17 @@
           "commitMessage": { "type": "string", "nullable": true, "example": "fix: handle null user in review flow" },
           "additions": { "type": "integer", "nullable": true, "description": "Total lines added across the PR diff", "example": 42 },
           "deletions": { "type": "integer", "nullable": true, "description": "Total lines removed across the PR diff", "example": 8 },
-          "status": { "type": "string", "enum": ["pending", "running", "success", "failed", "skipped"] },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "success", "failed", "skipped"],
+            "description": "Whether the review PROCESS completed without errors. Not a verdict on the code — see `verdict` for that."
+          },
+          "verdict": {
+            "type": "string",
+            "nullable": true,
+            "enum": ["passed", "issues_found", "error"],
+            "description": "The OUTCOME the AI found. `status: \"success\"` + `verdict: \"issues_found\"` means the review ran fine but found critical (or, under a \"strict\" severityThreshold, major) issues — check this field, not `status`, to know if the PR is clean. `null` while pending/running/skipped."
+          },
           "summary": { "type": "string", "nullable": true },
           "comments": { "type": "array", "items": { "$ref": "#/components/schemas/ReviewComment" } },
           "errorMessage": { "type": "string", "nullable": true },
@@ -463,6 +473,7 @@
                       "additions": 42,
                       "deletions": 8,
                       "status": "success",
+                      "verdict": "passed",
                       "summary": "Found 1 potential bug and 2 minor style suggestions.",
                       "comments": [
                         { "filePath": "src/math.js", "line": 12, "severity": "major", "comment": "This changes addition to subtraction, likely a bug." }
@@ -546,6 +557,7 @@
                   "additions": 42,
                   "deletions": 8,
                   "status": "success",
+                  "verdict": "passed",
                   "summary": "Found 1 potential bug and 2 minor style suggestions.",
                   "comments": [
                     { "filePath": "src/math.js", "line": 12, "severity": "major", "comment": "This changes addition to subtraction, likely a bug." }
