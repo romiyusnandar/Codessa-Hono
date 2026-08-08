@@ -56,7 +56,8 @@
           "comments": { "type": "array", "items": { "$ref": "#/components/schemas/ReviewComment" } },
           "errorMessage": { "type": "string", "nullable": true },
           "createdAt": { "type": "string", "format": "date-time" },
-          "finishedAt": { "type": "string", "format": "date-time", "nullable": true }
+          "finishedAt": { "type": "string", "format": "date-time", "nullable": true },
+          "repositoryFullName": { "type": "string", "description": "Included by GET /reviews and GET /reviews/{id}, not stored on the document itself", "example": "octocat/hello-world" }
         }
       },
       "RepositorySummary": {
@@ -168,7 +169,7 @@
                   "githubId": "583231",
                   "avatarUrl": "https://avatars.githubusercontent.com/u/583231?v=4",
                   "tokenRevoked": false,
-                  "settings": { "reviewLanguage": "id" }
+                  "settings": { "reviewLanguage": "id", "tone": "friendly", "customInstructions": "Always add a code snippet for fixes." }
                 }
               }
             }
@@ -206,7 +207,7 @@
           "200": {
             "description": "Updated settings",
             "content": {
-              "application/json": { "example": { "settings": { "reviewLanguage": "id" } } }
+              "application/json": { "example": { "settings": { "reviewLanguage": "id", "tone": "friendly" } } }
             }
           },
           "400": {
@@ -425,14 +426,39 @@
       "get": {
         "tags": ["Reviews"],
         "summary": "List review history for your repositories",
+        "description": "Returns review history across ALL repositories you own by default. Pass ?repo= to scope it to a single repository.",
         "security": [{ "sessionCookie": [] }],
         "parameters": [
-          { "name": "repo", "in": "query", "schema": { "type": "string" }, "description": "Filter by full repo name, e.g. octocat/hello-world" }
+          { "name": "repo", "in": "query", "schema": { "type": "string" }, "description": "Filter by full repo name, e.g. octocat/hello-world. Omit to get history across all your repos." }
         ],
         "responses": {
           "200": {
             "description": "List of reviews, newest first",
-            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Review" } } } }
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Review" } },
+                "example": [
+                  {
+                    "_id": "665f1c2e4b1a2c3d4e5f6789",
+                    "repositoryId": "665f1c2e4b1a2c3d4e5f1234",
+                    "repositoryFullName": "octocat/hello-world",
+                    "pullNumber": 7,
+                    "commitSha": "2c773ef9a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                    "shortSha": "2c773ef",
+                    "commitMessage": "fix: handle null user in review flow",
+                    "additions": 42,
+                    "deletions": 8,
+                    "status": "success",
+                    "summary": "Found 1 potential bug and 2 minor style suggestions.",
+                    "comments": [
+                      { "filePath": "src/math.js", "line": 12, "severity": "major", "comment": "This changes addition to subtraction, likely a bug." }
+                    ],
+                    "createdAt": "2026-08-01T09:12:00.000Z",
+                    "finishedAt": "2026-08-01T09:12:34.000Z"
+                  }
+                ]
+              }
+            }
           },
           "401": {
             "description": "Not logged in",
@@ -485,15 +511,37 @@
         ],
         "responses": {
           "200": {
-            "description": "Review detail",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Review" } } }
+            "description": "Review detail. 404 if it belongs to a repository you don't own, even if the id is valid.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Review" },
+                "example": {
+                  "_id": "665f1c2e4b1a2c3d4e5f6789",
+                  "repositoryId": "665f1c2e4b1a2c3d4e5f1234",
+                  "repositoryFullName": "octocat/hello-world",
+                  "pullNumber": 7,
+                  "commitSha": "2c773ef9a1b2c3d4e5f60718293a4b5c6d7e8f90",
+                  "shortSha": "2c773ef",
+                  "commitMessage": "fix: handle null user in review flow",
+                  "additions": 42,
+                  "deletions": 8,
+                  "status": "success",
+                  "summary": "Found 1 potential bug and 2 minor style suggestions.",
+                  "comments": [
+                    { "filePath": "src/math.js", "line": 12, "severity": "major", "comment": "This changes addition to subtraction, likely a bug." }
+                  ],
+                  "createdAt": "2026-08-01T09:12:00.000Z",
+                  "finishedAt": "2026-08-01T09:12:34.000Z"
+                }
+              }
+            }
           },
           "400": {
             "description": "Invalid id",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "404": {
-            "description": "Not found",
+            "description": "Not found, or not owned by you",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           }
         }
