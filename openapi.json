@@ -101,7 +101,11 @@
           "tokenRevoked": { "type": "boolean" },
           "settings": {
             "type": "object",
-            "properties": { "reviewLanguage": { "type": "string", "enum": ["en", "id", "zh"], "example": "id" } }
+            "properties": {
+              "reviewLanguage": { "type": "string", "enum": ["en", "id", "zh"], "example": "id" },
+              "tone": { "type": "string", "enum": ["friendly", "strict", "concise"] },
+              "customInstructions": { "type": "string" }
+            }
           }
         }
       }
@@ -180,6 +184,7 @@
       "patch": {
         "tags": ["Auth"],
         "summary": "Update user settings",
+        "description": "tone and customInstructions here are global fallbacks used across all of the user's repos. They're overridden by a repo's dashboard config (/repositories/{owner}/{repo}/config), which is in turn overridden by that repo's .github/.codessa.yml.",
         "security": [{ "sessionCookie": [] }],
         "requestBody": {
           "required": true,
@@ -187,9 +192,13 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "properties": { "reviewLanguage": { "type": "string", "enum": ["en", "id", "zh"] } }
+                "properties": {
+                  "reviewLanguage": { "type": "string", "enum": ["en", "id", "zh"] },
+                  "tone": { "type": "string", "enum": ["friendly", "strict", "concise"] },
+                  "customInstructions": { "type": "string" }
+                }
               },
-              "example": { "reviewLanguage": "id" }
+              "example": { "reviewLanguage": "id", "tone": "friendly" }
             }
           }
         },

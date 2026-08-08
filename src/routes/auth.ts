@@ -8,6 +8,7 @@ import { z } from "zod";
 import { collections } from "../db/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/require-auth.js";
 import { SUPPORTED_LANGUAGES } from "../constants/languages.js";
+import { REVIEW_TONES } from "../constants/review-config.js";
 
 const supportedLanguageCodes = SUPPORTED_LANGUAGES.map((l) => l.code) as [string, ...string[]];
 
@@ -136,6 +137,8 @@ authRoute.get("/languages", (c) => {
 
 const updateSettingsSchema = z.object({
   reviewLanguage: z.enum(supportedLanguageCodes).optional(),
+  tone: z.enum(REVIEW_TONES).optional(),
+  customInstructions: z.string().max(4000).optional(),
 });
 
 authRoute.patch("/settings", requireAuth, async (c) => {

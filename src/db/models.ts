@@ -3,6 +3,8 @@ import type { ReviewTone, SeverityThreshold, ReviewAnalysisFocus } from "../cons
 
 export type UserSettings = {
   reviewLanguage?: string;
+  tone?: ReviewTone;
+  customInstructions?: string;
 };
 
 export type User = {

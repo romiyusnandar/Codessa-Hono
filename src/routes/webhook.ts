@@ -73,6 +73,8 @@ webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => 
     severityThreshold: repository.severityThreshold,
     analysisFocus: repository.analysisFocus,
     reviewLanguage: repoOwner?.settings?.reviewLanguage,
+    userTone: repoOwner?.settings?.tone,
+    userCustomInstructions: repoOwner?.settings?.customInstructions,
   }).catch((error) => {
     console.error("runReview failed:", error);
   });
@@ -107,6 +109,8 @@ async function runReview(params: {
   severityThreshold?: string;
   analysisFocus?: ReviewAnalysisFocus;
   reviewLanguage?: string;
+  userTone?: string;
+  userCustomInstructions?: string;
 }) {
   const deepseek = new DeepseekService(deepseekApiKey);
   const octokit = await getInstallationOctokit(params.installationId);
@@ -156,9 +160,9 @@ async function runReview(params: {
         : undefined;
 
     const result = await deepseek.reviewFiles(files, {
-      customInstructions: config?.custom_instructions ?? params.customInstructions,
+      customInstructions: config?.custom_instructions ?? params.customInstructions ?? params.userCustomInstructions,
       language: config?.language ?? params.reviewLanguage,
-      tone: config?.tone ?? params.tone,
+      tone: config?.tone ?? params.tone ?? params.userTone,
       analysisFocus,
     });
 
