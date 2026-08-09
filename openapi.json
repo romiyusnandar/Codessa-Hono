@@ -649,6 +649,39 @@
       }
     },
     "/test-reviews": {
+      "get": {
+        "tags": ["Test Reviews"],
+        "summary": "List your ad-hoc test review history",
+        "description": "Paginated, newest first. Only returns test reviews you personally ran.",
+        "security": [{ "sessionCookie": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "perPage", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated test review list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/TestReview" } },
+                    "page": { "type": "integer" },
+                    "perPage": { "type": "integer" },
+                    "total": { "type": "integer" },
+                    "totalPages": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      },
       "post": {
         "tags": ["Test Reviews"],
         "summary": "Run an ad-hoc review against any PR URL",
@@ -688,8 +721,8 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestReview" } } }
           },
           "400": {
-            "description": "Invalid payload or malformed prUrl",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            "description": "Invalid payload or malformed prUrl. Payload errors include a `details` field (Zod's flattened error shape) pointing at which field failed.",
+            "content": { "application/json": { "example": { "error": "Invalid payload", "details": { "fieldErrors": { "prUrl": ["Required"] }, "formErrors": [] } } } }
           },
           "401": {
             "description": "Not logged in, or no GitHub access token on file",

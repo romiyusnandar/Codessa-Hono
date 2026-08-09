@@ -176,6 +176,26 @@ testReviewsRoute.post("/", async (c) => {
   }
 });
 
+testReviewsRoute.get("/", async (c) => {
+  const userId = new ObjectId(c.get("userId"));
+
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const perPage = Math.min(100, Math.max(1, Number(c.req.query("perPage") ?? 20)));
+
+  const filter = { userId };
+  const total = await collections.testReviews.countDocuments(filter);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  const data = await collections.testReviews
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * perPage)
+    .limit(perPage)
+    .toArray();
+
+  return c.json({ data, page, perPage, total, totalPages });
+});
+
 testReviewsRoute.get("/:id", async (c) => {
   const userId = new ObjectId(c.get("userId"));
   const id = c.req.param("id");
