@@ -13,6 +13,38 @@ import type { ReviewAnalysisFocus } from "../constants/review-config.js";
 const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY ?? "";
 
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: "🔴 Critical",
+  major: "🟠 Major",
+  minor: "🟡 Minor",
+  info: "🔵 Info",
+};
+
+function buildInlineCommentBody(severity: string, comment: string, suggestion?: string | null): string {
+  const label = SEVERITY_LABELS[severity] ?? severity;
+  const body = `**${label}** — ${comment}`;
+  return suggestion ? `${body}\n\n\`\`\`suggestion\n${suggestion}\n\`\`\`` : body;
+}
+
+function buildReviewBody(summary: string, changes: string[] | undefined, unplacedComments: { file: string; severity: string; comment: string }[]): string {
+  const sections = ["## Codessa Review", "", summary];
+
+  if (changes?.length) {
+    sections.push("", "**Changes:**", ...changes.map((change) => `- ${change}`));
+  }
+
+  if (unplacedComments.length) {
+    sections.push(
+      "",
+      "---",
+      "**Additional notes:**",
+      ...unplacedComments.map((c) => `- **${SEVERITY_LABELS[c.severity] ?? c.severity}** \`${c.file}\`: ${c.comment}`)
+    );
+  }
+
+  return sections.join("\n");
+}
+
 export const webhookRoute = new Hono<{ Variables: WebhookVariables }>();
 
 webhookRoute.post("/github", verifyGithubSignature(webhookSecret), async (c) => {
@@ -186,14 +218,14 @@ async function runReview(params: {
 
     const inlineComments = resolvedComments
       .filter((c) => c.resolvedLine !== null)
-      .map((c) => ({ path: c.file, line: c.resolvedLine as number, body: `**[${c.severity}]** ${c.comment}` }));
+      .map((c) => ({
+        path: c.file,
+        line: c.resolvedLine as number,
+        body: buildInlineCommentBody(c.severity, c.comment, c.suggestion),
+      }));
 
     const unplacedComments = resolvedComments.filter((c) => c.resolvedLine === null);
-    const summary = unplacedComments.length
-      ? `${result.summary}\n\n---\n**Additional notes:**\n${unplacedComments
-          .map((c) => `- **[${c.severity}]** \`${c.file}\`: ${c.comment}`)
-          .join("\n")}`
-      : result.summary;
+    const summary = buildReviewBody(result.summary, result.changes, unplacedComments);
 
     await github.postReviewComment(params.owner, params.repo, params.pullNumber, summary, inlineComments);
 
