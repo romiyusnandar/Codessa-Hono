@@ -200,7 +200,16 @@
       "get": {
         "tags": ["Auth"],
         "summary": "Start GitHub OAuth login",
-        "description": "Redirects the browser to GitHub's authorize page. On success, GitHub redirects back to /auth/github/callback which sets the `session` cookie.",
+        "description": "Redirects the browser to GitHub's authorize page. On success, GitHub redirects back to /auth/github/callback, which sets the `session` cookie and redirects to `{redirectTo}/dashboard`.",
+        "parameters": [
+          {
+            "name": "redirectTo",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Origin to redirect back to after login instead of the default FRONTEND_URL — e.g. a separate testing tool's URL. Must exactly match an entry in FRONTEND_URL or ADDITIONAL_ALLOWED_ORIGINS (same allowlist CORS uses), otherwise it's ignored and the default is used.",
+            "example": "http://localhost:5173"
+          }
+        ],
         "responses": {
           "302": { "description": "Redirect to https://github.com/login/oauth/authorize" }
         }

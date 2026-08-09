@@ -10,6 +10,7 @@ import { repositoriesRoute } from "./routes/repositories.js";
 import { githubAppRoute } from "./routes/github-app.js";
 import { testReviewsRoute } from "./routes/test-reviews.js";
 import { docsRoute } from "./routes/docs.js";
+import { ALLOWED_ORIGINS } from "./constants/allowed-origins.js";
 
 const app = new Hono();
 
@@ -17,14 +18,10 @@ const app = new Hono();
 // any origin back would let ANY website make cookie-authenticated requests on a logged-in
 // user's behalf. Add every frontend that needs to call this API (main dashboard, test tools,
 // etc.) to FRONTEND_URL / ADDITIONAL_ALLOWED_ORIGINS — comma-separated for the latter.
-const allowedOrigins = [process.env.FRONTEND_URL, ...(process.env.ADDITIONAL_ALLOWED_ORIGINS?.split(",") ?? [])]
-  .map((origin) => origin?.trim())
-  .filter((origin): origin is string => Boolean(origin));
-
 app.use(
   "*",
   cors({
-    origin: (origin) => (origin && allowedOrigins.includes(origin) ? origin : undefined),
+    origin: (origin) => (origin && ALLOWED_ORIGINS.includes(origin) ? origin : undefined),
     credentials: true,
   })
 );

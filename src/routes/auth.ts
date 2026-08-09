@@ -9,6 +9,7 @@ import { collections } from "../db/client.js";
 import { requireAuth, type AuthVariables } from "../middleware/require-auth.js";
 import { SUPPORTED_LANGUAGES } from "../constants/languages.js";
 import { REVIEW_TONES } from "../constants/review-config.js";
+import { ALLOWED_ORIGINS } from "../constants/allowed-origins.js";
 
 const supportedLanguageCodes = SUPPORTED_LANGUAGES.map((l) => l.code) as [string, ...string[]];
 
@@ -35,6 +36,19 @@ authRoute.get("/github", (c) => {
     path: "/",
   });
 
+  // Lets a caller other than the default FRONTEND_URL (e.g. a separate testing tool) get
+  // redirected back to itself after login — only if it's in the same allowlist CORS uses,
+  // otherwise this would be an open redirect.
+  const redirectTo = c.req.query("redirectTo");
+  if (redirectTo && ALLOWED_ORIGINS.includes(redirectTo)) {
+    setCookie(c, "oauth_redirect", redirectTo, {
+      httpOnly: true,
+      ...cookieOptions,
+      maxAge: 600,
+      path: "/",
+    });
+  }
+
   const url = new URL("https://github.com/login/oauth/authorize");
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", callbackUrl);
@@ -48,11 +62,17 @@ authRoute.get("/github/callback", async (c) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
   const expectedState = getCookie(c, "oauth_state");
+  const storedRedirect = getCookie(c, "oauth_redirect");
 
   deleteCookie(c, "oauth_state", { path: "/" });
+  deleteCookie(c, "oauth_redirect", { path: "/" });
+
+  // Re-validate against the allowlist rather than trusting the cookie blindly — defense in
+  // depth in case ALLOWED_ORIGINS ever shrinks between the initial redirect and this callback.
+  const targetOrigin = storedRedirect && ALLOWED_ORIGINS.includes(storedRedirect) ? storedRedirect : frontendUrl;
 
   if (!code || !state || !expectedState || state !== expectedState) {
-    return c.redirect(`${frontendUrl}/?login_error=invalid_state`);
+    return c.redirect(`${targetOrigin}/?login_error=invalid_state`);
   }
 
   const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
@@ -68,7 +88,7 @@ authRoute.get("/github/callback", async (c) => {
 
   const tokenData = (await tokenResponse.json()) as { access_token?: string; error?: string };
   if (!tokenData.access_token) {
-    return c.redirect(`${frontendUrl}/?login_error=token_exchange_failed`);
+    return c.redirect(`${targetOrigin}/?login_error=token_exchange_failed`);
   }
 
   const octokit = new Octokit({ auth: tokenData.access_token });
@@ -90,7 +110,7 @@ authRoute.get("/github/callback", async (c) => {
   );
 
   if (!result?._id) {
-    return c.redirect(`${frontendUrl}/?login_error=user_creation_failed`);
+    return c.redirect(`${targetOrigin}/?login_error=user_creation_failed`);
   }
 
   const jwt = await sign(
@@ -105,7 +125,7 @@ authRoute.get("/github/callback", async (c) => {
     path: "/",
   });
 
-  return c.redirect(`${frontendUrl}/dashboard`);
+  return c.redirect(`${targetOrigin}/dashboard`);
 });
 
 authRoute.get("/me", requireAuth, async (c) => {
