@@ -54,7 +54,7 @@ testReviewsRoute.post("/", async (c) => {
   const parsed = testReviewRequestSchema.safeParse(body);
 
   if (!parsed.success) {
-    return c.json({ error: "Invalid payload" }, 400);
+    return c.json({ error: "Invalid payload", details: parsed.error.flatten() }, 400);
   }
 
   const match = parsed.data.prUrl.match(PR_URL_REGEX);
