@@ -13,10 +13,18 @@ import { docsRoute } from "./routes/docs.js";
 
 const app = new Hono();
 
+// Explicit allowlist, not an origin-reflecting wildcard: with credentials:true, reflecting
+// any origin back would let ANY website make cookie-authenticated requests on a logged-in
+// user's behalf. Add every frontend that needs to call this API (main dashboard, test tools,
+// etc.) to FRONTEND_URL / ADDITIONAL_ALLOWED_ORIGINS — comma-separated for the latter.
+const allowedOrigins = [process.env.FRONTEND_URL, ...(process.env.ADDITIONAL_ALLOWED_ORIGINS?.split(",") ?? [])]
+  .map((origin) => origin?.trim())
+  .filter((origin): origin is string => Boolean(origin));
+
 app.use(
   "*",
   cors({
-    origin: (origin) => origin ?? "*",
+    origin: (origin) => (origin && allowedOrigins.includes(origin) ? origin : undefined),
     credentials: true,
   })
 );
