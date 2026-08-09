@@ -48,6 +48,18 @@ export type ReviewComment = {
   line: number | null;
   severity: "info" | "minor" | "major" | "critical";
   comment: string;
+  /** Which layer produced this finding: "ai" (DeepSeek review) or "sca" (OSV.dev dependency scan). */
+  source?: "ai" | "sca";
+  /** Set only for AI-flagged security vulnerabilities (layer 2: CWE classification). */
+  cwe?: { id: string; name: string } | null;
+  /**
+   * CVSS v3.1 base score, computed server-side from a vector via the official FIRST
+   * formula — never trusted from the AI or from OSV directly. Present for both AI
+   * security findings (layer 2) and SCA findings (layer 1) when a vector was available.
+   */
+  cvss?: { vector: string; score: number } | null;
+  /** OSV/CVE identifier, set only for SCA findings (layer 1). */
+  vulnerabilityId?: string | null;
 };
 
 export type Review = {

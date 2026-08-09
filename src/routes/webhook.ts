@@ -9,9 +9,16 @@ import { getInstallationOctokit } from "../services/github-app.service.js";
 import { getRepoReviewConfig } from "../services/codessa-config.service.js";
 import { getPatchLineContents, resolveCommentLine } from "../utils/diff.js";
 import type { ReviewAnalysisFocus } from "../constants/review-config.js";
+import { isSupportedCodeFile } from "../constants/supported-code-languages.js";
+import { scanDependencies } from "../services/sca.service.js";
+import { computeCvssScore } from "../utils/cvss.js";
+import type { ReviewComment } from "../db/models.js";
 
 const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET ?? "";
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY ?? "";
+
+/** Any finding at or above this CVSS score fails the PR's status check, regardless of severityThreshold. */
+const CVSS_FAIL_THRESHOLD = 7.0;
 
 const SEVERITY_LABELS: Record<string, string> = {
   critical: "🔴 Critical",
@@ -20,25 +27,42 @@ const SEVERITY_LABELS: Record<string, string> = {
   info: "🔵 Info",
 };
 
-function buildInlineCommentBody(severity: string, comment: string, suggestion?: string | null): string {
-  const label = SEVERITY_LABELS[severity] ?? severity;
-  const body = `**${label}** — ${comment}`;
-  return suggestion ? `${body}\n\n\`\`\`suggestion\n${suggestion}\n\`\`\`` : body;
+type UnifiedFinding = {
+  file: string;
+  resolvedLine: number | null;
+  severity: ReviewComment["severity"];
+  comment: string;
+  suggestion?: string | null;
+  source: "ai" | "sca";
+  cwe?: { id: string; name: string } | null;
+  cvss?: { vector: string; score: number } | null;
+  vulnerabilityId?: string | null;
+};
+
+function buildInlineCommentBody(finding: UnifiedFinding): string {
+  const label = SEVERITY_LABELS[finding.severity] ?? finding.severity;
+  const tags = [
+    finding.cwe ? `\`${finding.cwe.id}\` ${finding.cwe.name}` : null,
+    finding.cvss ? `CVSS ${finding.cvss.score.toFixed(1)}` : null,
+  ].filter(Boolean);
+
+  const header = tags.length ? `**${label}** (${tags.join(" · ")}) — ${finding.comment}` : `**${label}** — ${finding.comment}`;
+  return finding.suggestion ? `${header}\n\n\`\`\`suggestion\n${finding.suggestion}\n\`\`\`` : header;
 }
 
-function buildReviewBody(summary: string, changes: string[] | undefined, unplacedComments: { file: string; severity: string; comment: string }[]): string {
+function buildReviewBody(summary: string, changes: string[] | undefined, unplacedFindings: UnifiedFinding[]): string {
   const sections = ["## Codessa Review", "", summary];
 
   if (changes?.length) {
     sections.push("", "**Changes:**", ...changes.map((change) => `- ${change}`));
   }
 
-  if (unplacedComments.length) {
+  if (unplacedFindings.length) {
     sections.push(
       "",
       "---",
       "**Additional notes:**",
-      ...unplacedComments.map((c) => `- **${SEVERITY_LABELS[c.severity] ?? c.severity}** \`${c.file}\`: ${c.comment}`)
+      ...unplacedFindings.map((f) => `- **${SEVERITY_LABELS[f.severity] ?? f.severity}** \`${f.file}\`: ${f.comment}`)
     );
   }
 
@@ -174,6 +198,10 @@ async function runReview(params: {
     const allFiles = await github.getPullRequestFiles(params.owner, params.repo, params.pullNumber);
     const excludePaths = config?.review_rules?.ignore_paths ?? params.excludePaths ?? [];
     const files = allFiles.filter((f) => !excludePaths.some((pattern) => minimatch(f.filename, pattern, { dot: true })));
+    // AI review is scoped to a fixed set of languages (PHP/JS/TS/Go/Python); other files
+    // (e.g. manifest files, YAML, CSS) are excluded here but still counted in additions/deletions
+    // and still considered by the SCA layer below.
+    const reviewableFiles = files.filter((f) => isSupportedCodeFile(f.filename));
 
     additions = files.reduce((sum, f) => sum + f.additions, 0);
     deletions = files.reduce((sum, f) => sum + f.deletions, 0);
@@ -191,12 +219,14 @@ async function runReview(params: {
           }
         : undefined;
 
-    const result = await deepseek.reviewFiles(files, {
-      customInstructions: config?.custom_instructions ?? params.customInstructions ?? params.userCustomInstructions,
-      language: config?.language ?? params.reviewLanguage,
-      tone: config?.tone ?? params.tone ?? params.userTone,
-      analysisFocus,
-    });
+    const result = reviewableFiles.length
+      ? await deepseek.reviewFiles(reviewableFiles, {
+          customInstructions: config?.custom_instructions ?? params.customInstructions ?? params.userCustomInstructions,
+          language: config?.language ?? params.reviewLanguage,
+          tone: config?.tone ?? params.tone ?? params.userTone,
+          analysisFocus,
+        })
+      : { summary: "No PHP, JavaScript, Go, or Python files changed in this PR — nothing for the AI to review.", changes: [], comments: [] };
 
     const reportedComments =
       severityThreshold === "critical_only" ? result.comments.filter((c) => c.severity === "critical") : result.comments;
@@ -204,35 +234,64 @@ async function runReview(params: {
     const lineContentsByFile = new Map(
       files.map((f) => [f.filename, f.patch ? getPatchLineContents(f.patch) : new Map<number, string>()])
     );
-    const resolvedComments = reportedComments.map((c) => ({
-      ...c,
-      resolvedLine: resolveCommentLine(lineContentsByFile.get(c.file) ?? new Map(), c.line, c.lineContent),
+
+    const aiFindings: UnifiedFinding[] = reportedComments.map((c) => {
+      const cvssResult = c.cvssVector ? computeCvssScore(c.cvssVector) : null;
+      return {
+        file: c.file,
+        resolvedLine: resolveCommentLine(lineContentsByFile.get(c.file) ?? new Map(), c.line, c.lineContent),
+        severity: c.severity,
+        comment: c.comment,
+        suggestion: c.suggestion,
+        source: "ai",
+        cwe: c.cweId && c.cweName ? { id: c.cweId, name: c.cweName } : null,
+        cvss: cvssResult ? { vector: cvssResult.vector, score: cvssResult.score } : null,
+      };
+    });
+
+    // Layer 1 (SCA): only runs when security analysis is enabled — deterministic CVE data
+    // from OSV.dev, not AI-derived. Scoped to the 4 supported ecosystems (npm/PyPI/Packagist/Go).
+    const securityFocusEnabled = analysisFocus?.security !== false;
+    const scaFindings: UnifiedFinding[] = securityFocusEnabled
+      ? (await scanDependencies(octokit, params.owner, params.repo, params.commitSha, files)).map((f) => ({
+          file: f.file,
+          resolvedLine: f.line,
+          severity: f.severity,
+          comment: f.comment,
+          source: "sca",
+          cvss: f.cvss ? { vector: f.cvss.vector, score: f.cvss.score } : null,
+          vulnerabilityId: f.vulnerabilityId,
+        }))
+      : [];
+
+    const allFindings = [...aiFindings, ...scaFindings];
+
+    const comments: ReviewComment[] = allFindings.map((f) => ({
+      filePath: f.file,
+      line: f.resolvedLine,
+      severity: f.severity,
+      comment: f.comment,
+      source: f.source,
+      cwe: f.cwe ?? null,
+      cvss: f.cvss ?? null,
+      vulnerabilityId: f.vulnerabilityId ?? null,
     }));
 
-    const comments = resolvedComments.map((c) => ({
-      filePath: c.file,
-      line: c.resolvedLine,
-      severity: c.severity,
-      comment: c.comment,
-    }));
+    const inlineComments = allFindings
+      .filter((f) => f.resolvedLine !== null)
+      .map((f) => ({ path: f.file, line: f.resolvedLine as number, body: buildInlineCommentBody(f) }));
 
-    const inlineComments = resolvedComments
-      .filter((c) => c.resolvedLine !== null)
-      .map((c) => ({
-        path: c.file,
-        line: c.resolvedLine as number,
-        body: buildInlineCommentBody(c.severity, c.comment, c.suggestion),
-      }));
-
-    const unplacedComments = resolvedComments.filter((c) => c.resolvedLine === null);
-    const summary = buildReviewBody(result.summary, result.changes, unplacedComments);
+    const unplacedFindings = allFindings.filter((f) => f.resolvedLine === null);
+    const summary = buildReviewBody(result.summary, result.changes, unplacedFindings);
 
     await github.postReviewComment(params.owner, params.repo, params.pullNumber, summary, inlineComments);
 
-    const shouldFail =
+    const hasSeverityFailure =
       severityThreshold === "strict"
         ? reportedComments.some((c) => c.severity === "critical" || c.severity === "major")
         : reportedComments.some((c) => c.severity === "critical");
+    const hasHighCvss = allFindings.some((f) => (f.cvss?.score ?? 0) >= CVSS_FAIL_THRESHOLD);
+    const shouldFail = hasSeverityFailure || hasHighCvss;
 
     await github.setCommitStatus(
       params.owner,
