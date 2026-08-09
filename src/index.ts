@@ -8,6 +8,7 @@ import { reviewsRoute } from "./routes/reviews.js";
 import { authRoute } from "./routes/auth.js";
 import { repositoriesRoute } from "./routes/repositories.js";
 import { githubAppRoute } from "./routes/github-app.js";
+import { testReviewsRoute } from "./routes/test-reviews.js";
 import { docsRoute } from "./routes/docs.js";
 
 const app = new Hono();
@@ -26,6 +27,7 @@ app.route("/auth", authRoute);
 app.route("/github-app", githubAppRoute);
 app.route("/repositories", repositoriesRoute);
 app.route("/reviews", reviewsRoute);
+app.route("/test-reviews", testReviewsRoute);
 app.route("/", docsRoute);
 
 const port = Number(process.env.PORT ?? 3000);

@@ -86,3 +86,31 @@ export type Review = {
   createdAt: Date;
   finishedAt?: Date;
 };
+
+/**
+ * Ad-hoc review test: run the review pipeline against ANY PR URL the logged-in user
+ * can read (via their own GitHub OAuth token), without needing the repo enabled in the
+ * dashboard or the GitHub App installed on it. Never posts back to GitHub — result is
+ * only ever returned via the API / stored here. Deliberately a separate collection from
+ * `Review` so this testing tool can never affect the real review history or dashboard.
+ */
+export type TestReview = {
+  _id?: ObjectId;
+  userId: ObjectId;
+  prUrl: string;
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  commitSha?: string;
+  commitMessage?: string;
+  additions?: number;
+  deletions?: number;
+  status: "success" | "failed";
+  verdict?: "passed" | "issues_found" | "error";
+  summary?: string;
+  changes?: string[];
+  comments: ReviewComment[];
+  errorMessage?: string;
+  createdAt: Date;
+  finishedAt?: Date;
+};
