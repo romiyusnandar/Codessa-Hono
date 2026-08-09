@@ -43,11 +43,24 @@ function buildInlineCommentBody(finding: UnifiedFinding): string {
   const label = SEVERITY_LABELS[finding.severity] ?? finding.severity;
   const tags = [
     finding.cwe ? `\`${finding.cwe.id}\` ${finding.cwe.name}` : null,
-    finding.cvss ? `CVSS ${finding.cvss.score.toFixed(1)}` : null,
+    finding.cvss ? `CVSS ${finding.cvss.score.toFixed(1)} (${finding.cvss.vector.match(/^CVSS:[\d.]+/)?.[0] ?? "CVSS"})` : null,
   ].filter(Boolean);
 
-  const header = tags.length ? `**${label}** (${tags.join(" · ")}) — ${finding.comment}` : `**${label}** — ${finding.comment}`;
-  return finding.suggestion ? `${header}\n\n\`\`\`suggestion\n${finding.suggestion}\n\`\`\`` : header;
+  const parts = [tags.length ? `**${label}** (${tags.join(" · ")}) — ${finding.comment}` : `**${label}** — ${finding.comment}`];
+
+  // Show the raw vector explicitly, not just the score — the model only proposes the
+  // vector, this system computes the numeric score from it independently. Keeping the
+  // vector visible right on the PR comment (not just in the DB/API) makes that traceable
+  // without needing to inspect anything else.
+  if (finding.cvss) {
+    parts.push(`<details><summary>CVSS vector</summary>\n\n\`${finding.cvss.vector}\` → score computed by Codessa: **${finding.cvss.score.toFixed(1)}**\n\n</details>`);
+  }
+
+  if (finding.suggestion) {
+    parts.push(`\`\`\`suggestion\n${finding.suggestion}\n\`\`\``);
+  }
+
+  return parts.join("\n\n");
 }
 
 function buildReviewBody(summary: string, changes: string[] | undefined, unplacedFindings: UnifiedFinding[]): string {
@@ -62,7 +75,10 @@ function buildReviewBody(summary: string, changes: string[] | undefined, unplace
       "",
       "---",
       "**Additional notes:**",
-      ...unplacedFindings.map((f) => `- **${SEVERITY_LABELS[f.severity] ?? f.severity}** \`${f.file}\`: ${f.comment}`)
+      ...unplacedFindings.map((f) => {
+        const cvssNote = f.cvss ? ` _(CVSS ${f.cvss.score.toFixed(1)}, vector: \`${f.cvss.vector}\`)_` : "";
+        return `- **${SEVERITY_LABELS[f.severity] ?? f.severity}** \`${f.file}\`: ${f.comment}${cvssNote}`;
+      })
     );
   }
 
@@ -219,14 +235,24 @@ async function runReview(params: {
           }
         : undefined;
 
-    const result = reviewableFiles.length
-      ? await deepseek.reviewFiles(reviewableFiles, {
-          customInstructions: config?.custom_instructions ?? params.customInstructions ?? params.userCustomInstructions,
-          language: config?.language ?? params.reviewLanguage,
-          tone: config?.tone ?? params.tone ?? params.userTone,
-          analysisFocus,
-        })
-      : { summary: "No PHP, JavaScript, Go, or Python files changed in this PR — nothing for the AI to review.", changes: [], comments: [] };
+    // Layer 2 (AI/CWE) and Layer 1 (SCA) are independent — neither needs the other's
+    // output — so they run concurrently instead of back-to-back to cut total review time.
+    const securityFocusEnabled = analysisFocus?.security !== false;
+    const [result, scaRawFindings] = await Promise.all([
+      reviewableFiles.length
+        ? deepseek.reviewFiles(reviewableFiles, {
+            customInstructions: config?.custom_instructions ?? params.customInstructions ?? params.userCustomInstructions,
+            language: config?.language ?? params.reviewLanguage,
+            tone: config?.tone ?? params.tone ?? params.userTone,
+            analysisFocus,
+          })
+        : Promise.resolve({
+            summary: "No PHP, JavaScript, Go, or Python files changed in this PR — nothing for the AI to review.",
+            changes: [] as string[],
+            comments: [] as Awaited<ReturnType<typeof deepseek.reviewFiles>>["comments"],
+          }),
+      securityFocusEnabled ? scanDependencies(octokit, params.owner, params.repo, params.commitSha, files) : Promise.resolve([]),
+    ]);
 
     const reportedComments =
       severityThreshold === "critical_only" ? result.comments.filter((c) => c.severity === "critical") : result.comments;
@@ -249,20 +275,17 @@ async function runReview(params: {
       };
     });
 
-    // Layer 1 (SCA): only runs when security analysis is enabled — deterministic CVE data
-    // from OSV.dev, not AI-derived. Scoped to the 4 supported ecosystems (npm/PyPI/Packagist/Go).
-    const securityFocusEnabled = analysisFocus?.security !== false;
-    const scaFindings: UnifiedFinding[] = securityFocusEnabled
-      ? (await scanDependencies(octokit, params.owner, params.repo, params.commitSha, files)).map((f) => ({
-          file: f.file,
-          resolvedLine: f.line,
-          severity: f.severity,
-          comment: f.comment,
-          source: "sca",
-          cvss: f.cvss ? { vector: f.cvss.vector, score: f.cvss.score } : null,
-          vulnerabilityId: f.vulnerabilityId,
-        }))
-      : [];
+    // Layer 1 (SCA) findings — deterministic CVE data from OSV.dev, not AI-derived.
+    // Scoped to the 4 supported ecosystems (npm/PyPI/Packagist/Go).
+    const scaFindings: UnifiedFinding[] = scaRawFindings.map((f) => ({
+      file: f.file,
+      resolvedLine: f.line,
+      severity: f.severity,
+      comment: f.comment,
+      source: "sca",
+      cvss: f.cvss ? { vector: f.cvss.vector, score: f.cvss.score } : null,
+      vulnerabilityId: f.vulnerabilityId,
+    }));
 
     const allFindings = [...aiFindings, ...scaFindings];
 

@@ -3,7 +3,7 @@
   "info": {
     "title": "Codessa API",
     "version": "1.0.0",
-    "description": "AI-powered GitHub pull request review system. Authentication uses an httpOnly `session` cookie set after completing the GitHub OAuth login flow — browser requests automatically include it; non-browser clients must forward the `Set-Cookie` value."
+    "description": "AI-powered GitHub pull request review system. Authentication uses an httpOnly `session` cookie set after completing the GitHub OAuth login flow — browser requests automatically include it; non-browser clients must forward the `Set-Cookie` value.\n\nAI code review is scoped to PHP, JavaScript/TypeScript, Go, and Python files (other files in a PR are skipped from AI review but still counted in additions/deletions). Security findings come from two independent layers: (1) SCA — manifest files (package.json/requirements.txt/composer.json/go.mod) are checked against OSV.dev's vulnerability database for real CVEs in dependencies, deterministic, no AI involved; (2) CWE/CVSS — the AI flags vulnerabilities it finds in the code itself and proposes a CVSS vector, but this system computes the numeric score from that vector server-side using the official FIRST formula, never trusting a score from the AI. Both layers report through the same `ReviewComment` shape (see `source`, `cwe`, `cvss`, `vulnerabilityId`) and both can independently fail a PR's commit status check if a finding's CVSS score is 7.0 or higher."
   },
   "servers": [
     { "url": "https://api.codessa.xyz", "description": "Production" },
@@ -90,7 +90,7 @@
             "type": "string",
             "nullable": true,
             "enum": ["passed", "issues_found", "error"],
-            "description": "The OUTCOME the AI found. `status: \"success\"` + `verdict: \"issues_found\"` means the review ran fine but found critical (or, under a \"strict\" severityThreshold, major) issues — check this field, not `status`, to know if the PR is clean. `null` while pending/running/skipped."
+            "description": "The OUTCOME of the review. `status: \"success\"` + `verdict: \"issues_found\"` means the review ran fine but found problems — check this field, not `status`, to know if the PR is clean. Set to \"issues_found\" when either: (a) AI comment severity crosses `severityThreshold` (critical by default, major+ under \"strict\"), or (b) any finding — from the AI's CWE/CVSS layer or the OSV.dev SCA layer — has a computed CVSS score ≥ 7.0, regardless of severityThreshold. `null` while pending/running/skipped."
           },
           "summary": { "type": "string", "nullable": true },
           "comments": { "type": "array", "items": { "$ref": "#/components/schemas/ReviewComment" } },
@@ -125,7 +125,10 @@
             "type": "object",
             "nullable": true,
             "properties": {
-              "security": { "type": "boolean" },
+              "security": {
+                "type": "boolean",
+                "description": "Gates both security layers: the AI's CWE/CVSS-flagged code review comments, AND the OSV.dev dependency (SCA) scan on changed manifest files. Setting this to false disables both."
+              },
               "performance": { "type": "boolean" },
               "bugs": { "type": "boolean" },
               "codeStyle": { "type": "boolean" }
